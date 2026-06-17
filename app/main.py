@@ -256,3 +256,22 @@ async def vnc_proxy(websocket: WebSocket, session_id: str, token: str = Query(..
             await websocket.close()
         except Exception:
             pass
+
+
+# ── Static Frontend (React SPA) ──────────────────────────────────────────────
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
+
+if FRONTEND_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("internal/") or full_path.startswith("view/"):
+            raise HTTPException(404, "Not found")
+        file_path = FRONTEND_DIR / full_path
+        if full_path and file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(FRONTEND_DIR / "index.html")
