@@ -67,15 +67,17 @@ function VncViewer({ session, onClose }) {
 export default function App() {
   const [stats, setStats] = useState(null)
   const [sessions, setSessions] = useState([])
+  const [running, setRunning] = useState([])
   const [viewing, setViewing] = useState(null)
 
   const fetchData = async () => {
     try {
-      const [statsRes, sessionsRes] = await Promise.all([
-        fetch('/api/stats'), fetch('/api/sessions')
+      const [statsRes, sessionsRes, runningRes] = await Promise.all([
+        fetch('/api/stats'), fetch('/api/sessions'), fetch('/api/sessions/running')
       ])
       if (statsRes.ok) setStats(await statsRes.json())
       if (sessionsRes.ok) setSessions(await sessionsRes.json())
+      if (runningRes.ok) setRunning(await runningRes.json())
     } catch (e) { /* ignore */ }
   }
 
@@ -96,14 +98,14 @@ export default function App() {
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <StatCard label="Active Sessions" value={stats?.running_sessions ?? 0} max={stats?.max_global_sessions} />
+        <StatCard label="使用中 Sessions" value={sessions.length} max={stats?.max_global_sessions} />
+        <StatCard label="运行中 Browsers" value={running.length} />
         <StatCard label="Nodes Online" value={stats?.nodes?.filter(n => n.online).length ?? 0} />
-        <StatCard label="Total Nodes" value={stats?.nodes?.length ?? 0} />
       </div>
 
-      {/* Sessions table */}
+      {/* 正在被使用的 sessions (consumer 持有中) */}
       <div className="bg-gray-800/50 rounded-lg border border-gray-700 mb-6 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-700 font-medium">Active Sessions</div>
+        <div className="px-4 py-3 border-b border-gray-700 font-medium">使用中 Sessions（Consumer 持有）</div>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-gray-400 text-left">
@@ -120,7 +122,39 @@ export default function App() {
               <SessionRow key={s.session_id} session={s} onStop={handleStop} onView={setViewing} />
             ))}
             {sessions.length === 0 && (
-              <tr><td colSpan="6" className="px-3 py-6 text-center text-gray-500">No active sessions</td></tr>
+              <tr><td colSpan="6" className="px-3 py-6 text-center text-gray-500">无使用中的 session</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 活跃的 sessions (所有节点上已启动的浏览器) */}
+      <div className="bg-gray-800/50 rounded-lg border border-gray-700 mb-6 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-700 font-medium">运行中 Browsers（所有节点）</div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-gray-400 text-left">
+              <th className="px-3 py-2">Profile</th>
+              <th className="px-3 py-2">Name</th>
+              <th className="px-3 py-2">Node</th>
+              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">CDP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {running.map((r, i) => (
+              <tr key={i} className="border-t border-gray-700 hover:bg-gray-800/50">
+                <td className="px-3 py-2 font-mono text-xs">{r.profile_id?.slice(0, 8)}...</td>
+                <td className="px-3 py-2">{r.name}</td>
+                <td className="px-3 py-2">{r.node_id}</td>
+                <td className="px-3 py-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2"></span>running
+                </td>
+                <td className="px-3 py-2 font-mono text-xs text-gray-400">{r.cdp_url || '-'}</td>
+              </tr>
+            ))}
+            {running.length === 0 && (
+              <tr><td colSpan="5" className="px-3 py-6 text-center text-gray-500">无运行中的浏览器</td></tr>
             )}
           </tbody>
         </table>

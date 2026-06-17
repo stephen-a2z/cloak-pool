@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from app.config import cfg
@@ -116,6 +117,7 @@ async def upload_profile(profile_id: str, file: UploadFile = File(...)):
 
 @app.get("/api/sessions", response_model=list[SessionInfo])
 async def list_sessions():
+    """正在被使用的 session（consumer 持有中）"""
     dbc = db.get_db()
     rows = await dbc.execute_fetchall("SELECT * FROM sessions WHERE status = 'active'")
     now = datetime.now(timezone.utc)
@@ -133,6 +135,33 @@ async def list_sessions():
             view_token=row["view_token"],
         ))
     return result
+
+
+@app.get("/api/sessions/running")
+async def list_running_sessions():
+    """活跃的 session（所有节点上实际正在运行的浏览器）"""
+    results = []
+    async with httpx.AsyncClient(timeout=5) as client:
+        for node in registry.all_nodes():
+            if not node.online:
+                continue
+            try:
+                r = await client.get(f"{node.url}/api/profiles")
+                if r.status_code == 200:
+                    for p in r.json():
+                        if p.get("status") == "running":
+                            results.append({
+                                "profile_id": p["id"],
+                                "name": p.get("name", ""),
+                                "node_id": node.node_id,
+                                "node_url": node.url,
+                                "status": "running",
+                                "vnc_ws_port": p.get("vnc_ws_port"),
+                                "cdp_url": p.get("cdp_url"),
+                            })
+            except Exception:
+                continue
+    return results
 
 
 @app.get("/api/sessions/{session_id}", response_model=SessionInfo)
