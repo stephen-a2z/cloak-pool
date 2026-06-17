@@ -35,21 +35,95 @@ function SessionRow({ session, onStop, onView }) {
   )
 }
 
-function NodeRow({ node }) {
+function NodeCard({ node, onViewSession }) {
+  const [expanded, setExpanded] = useState(false)
+  const [profiles, setProfiles] = useState([])
+  const [loading, setLoading] = useState(false)
+
   const pct = node.max_sessions > 0 ? (node.current_sessions / node.max_sessions) * 100 : 0
+
+  const fetchProfiles = async () => {
+    setLoading(true)
+    try {
+      const r = await fetch(`/api/nodes/${node.node_id}/profiles`)
+      if (r.ok) setProfiles(await r.json())
+    } catch (e) {}
+    setLoading(false)
+  }
+
+  const handleToggle = () => {
+    if (!expanded) fetchProfiles()
+    setExpanded(!expanded)
+  }
+
+  const handleLaunch = async (profileId) => {
+    await fetch(`/api/nodes/${node.node_id}/profiles/${profileId}/launch`, { method: 'POST' })
+    fetchProfiles()
+  }
+
+  const handleStop = async (profileId) => {
+    await fetch(`/api/nodes/${node.node_id}/profiles/${profileId}/stop`, { method: 'POST' })
+    fetchProfiles()
+  }
+
   return (
-    <div className="bg-gray-800 rounded-lg p-3 border border-gray-700 flex items-center gap-3">
-      <span className={`w-2 h-2 rounded-full ${node.online ? 'bg-green-400' : 'bg-red-400'}`}></span>
-      <div className="flex-1">
-        <div className="text-sm font-medium">{node.node_id}</div>
-        <div className="text-xs text-gray-400">{node.url}</div>
-      </div>
-      <div className="w-24">
-        <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-          <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }}></div>
+    <div className="bg-gray-800 rounded-lg border border-gray-700">
+      <div className="p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-750" onClick={handleToggle}>
+        <span className={`w-2 h-2 rounded-full ${node.online ? 'bg-green-400' : 'bg-red-400'}`}></span>
+        <div className="flex-1">
+          <div className="text-sm font-medium">{node.node_id}</div>
+          <div className="text-xs text-gray-400">{node.url}</div>
         </div>
-        <div className="text-xs text-gray-400 mt-1 text-center">{node.current_sessions}/{node.max_sessions}</div>
+        <div className="w-24">
+          <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }}></div>
+          </div>
+          <div className="text-xs text-gray-400 mt-1 text-center">{node.current_sessions}/{node.max_sessions}</div>
+        </div>
+        <span className="text-gray-500 text-xs">{expanded ? '▲' : '▼'}</span>
       </div>
+      {expanded && (
+        <div className="border-t border-gray-700 p-3">
+          {loading && <div className="text-xs text-gray-500">Loading...</div>}
+          {!loading && profiles.length === 0 && <div className="text-xs text-gray-500">No profiles on this node</div>}
+          {!loading && profiles.length > 0 && (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-gray-500">
+                  <th className="text-left pb-1">Name</th>
+                  <th className="text-left pb-1">ID</th>
+                  <th className="text-left pb-1">Status</th>
+                  <th className="text-left pb-1">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profiles.map(p => (
+                  <tr key={p.id} className="border-t border-gray-700/50">
+                    <td className="py-1.5">{p.name}</td>
+                    <td className="py-1.5 font-mono text-gray-400">{p.id?.slice(0, 8)}...</td>
+                    <td className="py-1.5">
+                      <span className={`inline-flex items-center gap-1 ${p.status === 'running' ? 'text-green-400' : 'text-gray-500'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${p.status === 'running' ? 'bg-green-400' : 'bg-gray-600'}`}></span>
+                        {p.status}
+                      </span>
+                    </td>
+                    <td className="py-1.5 space-x-2">
+                      {p.status === 'running' ? (
+                        <>
+                          <button onClick={() => onViewSession({ _browser: true, node_id: node.node_id, profile_id: p.id, name: p.name })} className="text-blue-400 hover:text-blue-300">View</button>
+                          <button onClick={() => handleStop(p.id)} className="text-red-400 hover:text-red-300">Stop</button>
+                        </>
+                      ) : (
+                        <button onClick={() => handleLaunch(p.id)} className="text-green-400 hover:text-green-300">Launch</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -174,7 +248,7 @@ export default function App() {
       <div className="mb-6">
         <div className="font-medium mb-3">Nodes</div>
         <div className="grid grid-cols-2 gap-3">
-          {(stats?.nodes ?? []).map(n => <NodeRow key={n.node_id} node={n} />)}
+          {(stats?.nodes ?? []).map(n => <NodeCard key={n.node_id} node={n} onViewSession={setViewing} />)}
         </div>
       </div>
 

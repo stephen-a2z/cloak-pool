@@ -96,6 +96,62 @@ async def reset(req: ResetRequest):
     return {"ok": True}
 
 
+# ── Node Profile Management ───────────────────────────────────────────────────
+
+@app.get("/api/nodes/{node_id}/profiles")
+async def get_node_profiles(node_id: str):
+    """Get all profiles on a specific CBM node with their status."""
+    node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
+    if not node or not node.online:
+        raise HTTPException(404, "Node not found or offline")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{node.url}/api/profiles")
+            if r.status_code != 200:
+                raise HTTPException(502, "Failed to fetch profiles from node")
+            return r.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, f"Node unreachable: {exc}")
+
+
+@app.post("/api/nodes/{node_id}/profiles/{profile_id}/launch")
+async def launch_node_profile(node_id: str, profile_id: str):
+    """Launch a profile on a specific node."""
+    node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
+    if not node or not node.online:
+        raise HTTPException(404, "Node not found or offline")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(f"{node.url}/api/profiles/{profile_id}/launch")
+            if r.status_code not in (200, 201):
+                raise HTTPException(r.status_code, r.json().get("detail", "Launch failed"))
+            return r.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, f"Node unreachable: {exc}")
+
+
+@app.post("/api/nodes/{node_id}/profiles/{profile_id}/stop")
+async def stop_node_profile(node_id: str, profile_id: str):
+    """Stop a profile on a specific node."""
+    node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
+    if not node or not node.online:
+        raise HTTPException(404, "Node not found or offline")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(f"{node.url}/api/profiles/{profile_id}/stop")
+            if r.status_code not in (200, 201):
+                raise HTTPException(r.status_code, r.json().get("detail", "Stop failed"))
+            return r.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, f"Node unreachable: {exc}")
+
+
 # ── Profile CRUD ───────────────────────────────────────────────────────────────
 
 async def _sync_profile_to_nodes(profile_id: str, profile_data: dict, action: str = "update"):
