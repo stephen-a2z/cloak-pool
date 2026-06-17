@@ -29,6 +29,7 @@ export default function CreateProfileModal({ nodeId, onClose, onCreated }) {
     color_scheme: '', launch_args: [], notes: '', tags: []
   })
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [tagInput, setTagInput] = useState('')
   const [tagColor, setTagColor] = useState('#6366f1')
   const [launchArgInput, setLaunchArgInput] = useState('')
@@ -39,6 +40,7 @@ export default function CreateProfileModal({ nodeId, onClose, onCreated }) {
     e.preventDefault()
     if (!form.name.trim()) return
     setSaving(true)
+    setError('')
     const body = { name: form.name.trim() }
     if (form.fingerprint_seed) body.fingerprint_seed = parseInt(form.fingerprint_seed)
     if (form.proxy) body.proxy = form.proxy
@@ -61,10 +63,22 @@ export default function CreateProfileModal({ nodeId, onClose, onCreated }) {
     if (form.launch_args.length) body.launch_args = form.launch_args
     if (form.notes) body.notes = form.notes
     if (form.tags.length) body.tags = form.tags
-    await fetch(`/api/nodes/${nodeId}/profiles`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
+    try {
+      const res = await fetch(`/api/nodes/${nodeId}/profiles`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setError(err.detail || `Failed (${res.status})`)
+        setSaving(false)
+        return
+      }
+    } catch (e) {
+      setError('Network error')
+      setSaving(false)
+      return
+    }
     setSaving(false)
     onCreated()
   }
@@ -309,9 +323,12 @@ export default function CreateProfileModal({ nodeId, onClose, onCreated }) {
         </form>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-800 shrink-0">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-white/5 transition-colors">Cancel</button>
-          <button onClick={handleSubmit} disabled={saving || !form.name.trim()} className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50 active:scale-95">{saving ? 'Saving...' : 'Create'}</button>
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-800 shrink-0">
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <div className="flex gap-2 ml-auto">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-white/5 transition-colors">Cancel</button>
+            <button onClick={handleSubmit} disabled={saving || !form.name.trim()} className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50 active:scale-95">{saving ? 'Saving...' : 'Create'}</button>
+          </div>
         </div>
       </div>
     </div>
