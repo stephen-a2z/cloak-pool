@@ -219,30 +219,13 @@ async def list_mappings():
 
 # ── View: noVNC pages ─────────────────────────────────────────────────────────
 
-def _build_vnc_html(title: str, ws_path: str) -> str:
-    return f"""<!DOCTYPE html>
-<html><head><title>{title}</title>
-<style>
-body {{ margin: 0; overflow: hidden; background: #000; }}
-#screen {{ width: 100vw; height: 100vh; }}
-#status {{ position: fixed; top: 8px; left: 8px; color: #888; font: 12px monospace; z-index: 10; }}
-</style>
-</head><body>
-<div id="status">Connecting...</div>
-<div id="screen"></div>
-<script type="module">
-import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.5.0/core/rfb.js';
-const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '{ws_path}';
-try {{
-  const rfb = new RFB(document.getElementById('screen'), wsUrl, {{ wsProtocols: ['binary'] }});
-  rfb.scaleViewport = true;
-  rfb.resizeSession = false;
-  rfb.addEventListener('connect', () => {{ document.getElementById('status').textContent = 'Connected'; setTimeout(() => document.getElementById('status').style.display = 'none', 2000); }});
-  rfb.addEventListener('disconnect', () => {{ document.getElementById('status').textContent = 'Disconnected'; document.getElementById('status').style.display = 'block'; }});
-}} catch(e) {{
-  document.getElementById('status').textContent = 'Error: ' + e.message;
-}}
-</script></body></html>"""
+def _vnc_page_response(ws_path: str):
+    """Redirect to the built vnc.html with ws path as query parameter."""
+    from urllib.parse import quote
+    return HTMLResponse(
+        status_code=200,
+        content=f'<html><head><meta http-equiv="refresh" content="0;url=/vnc.html?ws={quote(ws_path)}"></head></html>',
+    )
 
 
 @app.get("/view/{session_id}")
@@ -257,10 +240,7 @@ async def view_session(session_id: str, token: str = Query(...)):
         raise HTTPException(404, "Session not found or not active")
     if rows[0][0] != token:
         raise HTTPException(403, "Invalid view token")
-    return HTMLResponse(_build_vnc_html(
-        f"Session - {session_id[:8]}",
-        f"/api/view/{session_id}/vnc?token={token}",
-    ))
+    return _vnc_page_response(f"/api/view/{session_id}/vnc?token={token}")
 
 
 @app.get("/view/browser/{node_id}/{profile_id}")
@@ -269,10 +249,7 @@ async def view_browser(node_id: str, profile_id: str):
     node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
     if not node:
         raise HTTPException(404, "Node not found")
-    return HTMLResponse(_build_vnc_html(
-        f"Browser - {profile_id[:8]} on {node_id}",
-        f"/api/view/browser/{node_id}/{profile_id}/vnc",
-    ))
+    return _vnc_page_response(f"/api/view/browser/{node_id}/{profile_id}/vnc")
 
 @app.websocket("/api/view/{session_id}/vnc")
 async def vnc_proxy(websocket: WebSocket, session_id: str, token: str = Query(...)):
