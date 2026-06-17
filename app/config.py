@@ -12,6 +12,7 @@ class Config:
     MAX_NODE_SESSIONS: int = int(os.environ.get("MAX_NODE_SESSIONS", "5"))
     PROFILE_STORAGE_DIR: str = os.environ.get("PROFILE_STORAGE_DIR", "/data/profiles")
     NFS_PROFILES_DIR: str = os.environ.get("NFS_PROFILES_DIR", "")  # 设置后启用 NFS 模式
+    LOCAL_PROFILES_DIR: str = os.environ.get("LOCAL_PROFILES_DIR", "/data/cbm-profiles")  # worker 解压目录（共享给 CBM）
     TTL_DEFAULT: int = int(os.environ.get("TTL_DEFAULT", "1800"))  # 30 min
     TTL_MAX: int = int(os.environ.get("TTL_MAX", "7200"))  # 2 hours
     DB_PATH: str = os.environ.get("DB_PATH", "/data/browser-pool.db")

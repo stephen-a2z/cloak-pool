@@ -6,7 +6,7 @@ version: "3.8"
 # │  2. docker compose -f docker-compose.master.yml up -d --build │
 # │                                                     │
 # │  访问: http://<HOST_IP>:9000                         │
-# │  Worker 连接 NFS: <HOST_IP>:/data/profiles           │
+# │  Worker 连接 NFS: <HOST_IP>:2049                     │
 # └─────────────────────────────────────────────────────┘
 
 services:
@@ -19,7 +19,7 @@ services:
     environment:
       - SHARED_DIRECTORY=/nfs
     volumes:
-      - profiles-data:/nfs
+      - nfs-data:/nfs
 
   master:
     build: .
@@ -30,14 +30,13 @@ services:
       - ROLE=master
       - MASTER_URL=http://${HOST_IP}:9000
       - MAX_GLOBAL_SESSIONS=10
-      - PROFILE_STORAGE_DIR=/data/profiles
       - NFS_PROFILES_DIR=/nfs/profiles
       - DB_PATH=/data/browser-pool.db
       - TTL_DEFAULT=1800
       - TTL_MAX=7200
     volumes:
       - pool-data:/data
-      - profiles-data:/nfs/profiles
+      - nfs-data:/nfs/profiles
 
   cloakbrowser:
     image: cloakhq/cloakbrowser-manager
@@ -46,6 +45,7 @@ services:
       - "8080:8080"
     volumes:
       - cbm-data:/data
+      - shared-profiles:/data/profiles
 
   worker:
     build: .
@@ -60,13 +60,16 @@ services:
       - MAX_NODE_SESSIONS=5
       - WORKER_PORT=9001
       - NFS_PROFILES_DIR=/nfs/profiles
+      - LOCAL_PROFILES_DIR=/shared-profiles
     volumes:
-      - profiles-data:/nfs/profiles
+      - nfs-data:/nfs/profiles
+      - shared-profiles:/shared-profiles
     depends_on:
       - master
       - cloakbrowser
 
 volumes:
   pool-data:
-  profiles-data:
+  nfs-data:
   cbm-data:
+  shared-profiles:

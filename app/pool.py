@@ -71,9 +71,10 @@ class PoolManager:
                 # 6. Pull profile data from master to worker
                 if storage.profile_exists(profile_id):
                     worker_url = self._worker_url(cbm_url)
+                    local_dir = f"{cfg.LOCAL_PROFILES_DIR}/{profile_id}"
                     r = await client.post(
                         f"{worker_url}/internal/sync/pull",
-                        json={"profile_id": profile_id, "master_url": cfg.MASTER_URL, "local_dir": f"/data/cbm-profiles/{profile_id}"},
+                        json={"profile_id": profile_id, "master_url": cfg.MASTER_URL, "local_dir": local_dir},
                         timeout=30,
                     )
                     if r.status_code != 200:
@@ -195,9 +196,10 @@ class PoolManager:
                 # Stop browser
                 await client.post(f"{cbm_url}/api/profiles/{profile_id}/stop")
                 # Push profile data back to master
+                local_dir = f"{cfg.LOCAL_PROFILES_DIR}/{profile_id}"
                 await client.post(
                     f"{worker_url}/internal/sync/push",
-                    json={"profile_id": profile_id, "master_url": cfg.MASTER_URL, "local_dir": f"/data/cbm-profiles/{profile_id}"},
+                    json={"profile_id": profile_id, "master_url": cfg.MASTER_URL, "local_dir": local_dir},
                     timeout=60,
                 )
         except HTTPException:
