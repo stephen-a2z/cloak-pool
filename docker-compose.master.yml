@@ -1,15 +1,26 @@
 version: "3.8"
 
 # ┌─────────────────────────────────────────────────────┐
-# │  部署前先创建 .env 文件:                               │
-# │  cp .env.example .env && 编辑 HOST_IP 为本机内网 IP    │
+# │  部署步骤:                                            │
+# │  1. cp .env.example .env && 编辑 HOST_IP             │
+# │  2. docker compose -f docker-compose.master.yml up -d --build │
 # │                                                     │
-# │  启动后访问:                                          │
-# │  Dashboard:  http://<HOST_IP>:9000                   │
-# │  API:        http://<HOST_IP>:9000/api/health        │
+# │  访问: http://<HOST_IP>:9000                         │
+# │  Worker 连接 NFS: <HOST_IP>:/data/profiles           │
 # └─────────────────────────────────────────────────────┘
 
 services:
+  nfs:
+    image: itsthenetwork/nfs-server-alpine:12
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "2049:2049"
+    environment:
+      - SHARED_DIRECTORY=/nfs
+    volumes:
+      - profiles-data:/nfs
+
   master:
     build: .
     restart: unless-stopped
@@ -20,11 +31,13 @@ services:
       - MASTER_URL=http://${HOST_IP}:9000
       - MAX_GLOBAL_SESSIONS=10
       - PROFILE_STORAGE_DIR=/data/profiles
+      - NFS_PROFILES_DIR=/nfs/profiles
       - DB_PATH=/data/browser-pool.db
       - TTL_DEFAULT=1800
       - TTL_MAX=7200
     volumes:
-      - ./data:/data
+      - pool-data:/data
+      - profiles-data:/nfs/profiles
 
   cloakbrowser:
     image: cloakhq/cloakbrowser-manager
@@ -48,10 +61,12 @@ services:
       - WORKER_PORT=9001
       - NFS_PROFILES_DIR=/nfs/profiles
     volumes:
-      - ./data/profiles:/nfs/profiles
+      - profiles-data:/nfs/profiles
     depends_on:
       - master
       - cloakbrowser
 
 volumes:
+  pool-data:
+  profiles-data:
   cbm-data:

@@ -1,11 +1,12 @@
 version: "3.8"
 
 # ┌─────────────────────────────────────────────────────┐
-# │  部署前先创建 .env 文件:                               │
-# │  cp .env.example .env                               │
-# │  编辑 HOST_IP 为本机内网 IP                            │
-# │  编辑 MASTER_IP 为 master 节点内网 IP                  │
-# │  编辑 NODE_ID 为本节点名称 (如 node-1)                 │
+# │  部署步骤:                                            │
+# │  1. cp .env.example .env                            │
+# │  2. 编辑: HOST_IP, MASTER_IP, NODE_ID               │
+# │  3. docker compose -f docker-compose.worker.yml up -d --build │
+# │                                                     │
+# │  NFS 自动挂载 master 的 profiles 目录                  │
 # └─────────────────────────────────────────────────────┘
 
 services:
@@ -40,5 +41,5 @@ volumes:
     driver: local
     driver_opts:
       type: nfs
-      o: addr=${MASTER_IP},nfsvers=4,rw
-      device: ":/data/profiles"
+      o: addr=${MASTER_IP},nfsvers=4,rw,nolock,soft,timeo=30
+      device: ":/"
