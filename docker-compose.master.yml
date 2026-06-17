@@ -24,3 +24,30 @@ services:
       - TTL_MAX=7200
     volumes:
       - ./data:/data
+
+  cloakbrowser:
+    image: cloakhq/cloakbrowser-manager
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - cbm-data:/data
+
+  worker:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "9001:9001"
+    environment:
+      - ROLE=worker
+      - MASTER_URL=http://master:9000
+      - NODE_ID=master-node
+      - NODE_ADVERTISE_URL=http://cloakbrowser:8080
+      - MAX_NODE_SESSIONS=5
+      - WORKER_PORT=9001
+    depends_on:
+      - master
+      - cloakbrowser
+
+volumes:
+  cbm-data:
