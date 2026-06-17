@@ -84,6 +84,23 @@ consumer_profiles         profiles                sessions
                                      = 浏览器正在运行)
 ```
 
+### global_defaults
+
+全局默认配置。Acquire 时未传的字段从此处填充，也用于 Dashboard 新建 Profile 的默认值。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `id` | INTEGER PK | 1 | 固定为 1（单行配置表） |
+| `proxy` | TEXT | NULL | 默认代理地址 |
+| `timezone` | TEXT | NULL | 默认时区 |
+| `locale` | TEXT | NULL | 默认语言区域 |
+| `platform` | TEXT | `windows` | 默认平台 |
+| `user_agent` | TEXT | NULL | 默认 User Agent |
+| `screen_width` | INTEGER | `1920` | 默认屏幕宽度 |
+| `screen_height` | INTEGER | `1080` | 默认屏幕高度 |
+| `notes` | TEXT | NULL | 备注 |
+| `updated_at` | TEXT | `datetime('now')` | 更新时间 |
+
 ## 内存状态（非持久化）
 
 ### NodeRegistry（master 进程内存）

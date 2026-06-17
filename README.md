@@ -97,16 +97,29 @@ cd frontend && npm install && npm run dev
 |--------|------|-------------|
 | POST | `/api/nodes/heartbeat` | Worker 心跳注册 |
 | GET | `/api/nodes` | 节点列表 |
+| GET | `/api/nodes/{node_id}/profiles` | 获取节点上的所有 profile |
+| POST | `/api/nodes/{node_id}/profiles` | 在节点上创建 profile |
+| POST | `/api/nodes/{node_id}/profiles/{profile_id}/launch` | 在节点上启动 profile |
+| POST | `/api/nodes/{node_id}/profiles/{profile_id}/stop` | 在节点上停止 profile |
+
+### 全局默认值
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/defaults` | 获取全局默认配置 |
+| PUT | `/api/defaults` | 更新全局默认配置 |
 
 ### 仪表盘
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/sessions` | 活跃 session 列表 |
+| GET | `/api/sessions/running` | 运行中的浏览器列表 |
 | GET | `/api/stats` | 全局统计 |
 | GET | `/api/mappings` | consumer ↔ profile 映射 |
 | POST | `/api/sessions/{id}/stop` | 管理员强制停止 |
 | GET | `/view/{session_id}?token=xxx` | 实时查看浏览器画面 |
+| GET | `/view/browser/{node_id}/{profile_id}` | 直接查看节点上运行的浏览器 |
 
 ## 使用示例
 
@@ -171,6 +184,8 @@ Token 随 session 释放自动失效。
 - **TTL 自动回收** — 超时未 release 的 session 自动释放，防止僵尸浏览器
 - **Cache 控制** — 启动参数限制 cache 大小 + release 时清理，保持 user-data-dir 精简（30-60MB）
 - **实时查看** — 通过 noVNC 在浏览器中查看运行中的浏览器实例
+- **节点 Profile 管理** — 通过 Dashboard 直接在节点上创建、启动、停止 profile（字段完全对齐 CloakBrowser-Manager）
+- **全局默认值** — 配置 proxy、timezone、locale 等默认值，acquire 未传值时自动填充
 
 ## 环境变量
 
@@ -206,3 +221,21 @@ pytest tests/test_e2e.py -v
 - **Database**: SQLite (aiosqlite)
 - **Browser Engine**: CloakBrowser-Manager (外部服务)
 - **VNC Viewer**: noVNC
+
+## 仪表盘功能
+
+Web Dashboard（http://master:9000）提供：
+
+- **全局统计** — 使用中 Sessions、运行中 Browsers、在线节点数
+- **Session 管理** — 查看/停止活跃 session，实时 TTL 倒计时
+- **运行中浏览器** — 列出所有正在运行的浏览器实例，支持 noVNC 查看
+- **全局默认值编辑** — 统一配置 proxy、timezone、locale、platform、user_agent、screen 等
+- **节点管理** — 展开节点查看所有 profile，支持 Launch/Stop/View
+- **新建 Profile** — 弹窗表单完全对齐 CloakBrowser-Manager ProfileForm，包含：
+  - Basic: name, platform, fingerprint_seed (带 Random 按钮)
+  - Network: proxy, timezone, locale, GeoIP 开关
+  - Hardware: screen resolution presets, hardware_concurrency, GPU presets + vendor/renderer
+  - Behavior: humanize, human_preset, clipboard_sync, auto_launch, color_scheme, user_agent
+  - Tags: 颜色选择 + 标签添加/删除
+  - Launch Args: 逐条添加/删除 Chromium 启动参数
+  - Notes: 备注
