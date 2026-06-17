@@ -1,35 +1,49 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import VncViewer from './VncViewer'
 import ProfileManager from './ProfileManager'
 
-function StatCard({ label, value, max }) {
+function StatCard({ label, value, max, accent = 'blue' }) {
+  const colors = { blue: 'from-blue-500/10 to-transparent border-blue-500/20', green: 'from-emerald-500/10 to-transparent border-emerald-500/20', amber: 'from-amber-500/10 to-transparent border-amber-500/20' }
+  const textColors = { blue: 'text-blue-400', green: 'text-emerald-400', amber: 'text-amber-400' }
   return (
-    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-      <div className="text-sm text-gray-400">{label}</div>
-      <div className="text-2xl font-bold mt-1">
-        {value}{max !== undefined && <span className="text-gray-500 text-lg"> / {max}</span>}
+    <div className={`relative overflow-hidden rounded-xl border bg-gradient-to-br p-5 ${colors[accent]}`}>
+      <div className="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</div>
+      <div className={`text-3xl font-semibold mt-2 tabular-nums ${textColors[accent]}`}>
+        {value}{max !== undefined && <span className="text-gray-600 text-xl font-normal"> / {max}</span>}
       </div>
     </div>
   )
 }
 
-function SessionRow({ session, onStop, onView }) {
+function Skeleton({ rows = 3 }) {
+  return Array.from({ length: rows }).map((_, i) => (
+    <tr key={i} className="border-t border-gray-800"><td colSpan="6" className="px-3 py-3"><div className="h-4 bg-gray-800 rounded animate-pulse" style={{ width: `${60 + Math.random() * 30}%` }}></div></td></tr>
+  ))
+}
+
+function SessionRow({ session, onStop, onView, stopping }) {
   const mins = Math.floor(session.ttl_remaining / 60)
   const secs = session.ttl_remaining % 60
+  const urgent = session.ttl_remaining < 120
   return (
-    <tr className="border-t border-gray-700 hover:bg-gray-800/50">
-      <td className="px-3 py-2 font-mono text-xs">{session.consumer_id.slice(0, 12)}...</td>
-      <td className="px-3 py-2 font-mono text-xs">{session.profile_id.slice(0, 8)}...</td>
-      <td className="px-3 py-2">{session.node_id}</td>
-      <td className="px-3 py-2">
-        <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2"></span>
-        {session.status}
+    <tr className="border-t border-gray-800/60 transition-colors hover:bg-white/[0.02]">
+      <td className="px-4 py-2.5 font-mono text-xs text-gray-300">{session.consumer_id.slice(0, 16)}</td>
+      <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{session.profile_id.slice(0, 8)}</td>
+      <td className="px-4 py-2.5 text-sm">{session.node_id}</td>
+      <td className="px-4 py-2.5">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>active
+        </span>
       </td>
-      <td className="px-3 py-2 font-mono">{mins}:{secs.toString().padStart(2, '0')}</td>
-      <td className="px-3 py-2 space-x-2">
-        <button onClick={() => onView(session)} className="text-blue-400 hover:text-blue-300 text-sm">View</button>
-        <a href={`/view/${session.session_id}?token=${session.view_token || ''}`} target="_blank" className="text-gray-400 hover:text-gray-300 text-sm">↗ Open</a>
-        <button onClick={() => onStop(session.session_id)} className="text-red-400 hover:text-red-300 text-sm">Stop</button>
+      <td className={`px-4 py-2.5 font-mono text-sm tabular-nums ${urgent ? 'text-amber-400' : 'text-gray-300'}`}>{mins}:{secs.toString().padStart(2, '0')}</td>
+      <td className="px-4 py-2.5">
+        <div className="flex items-center gap-1">
+          <button onClick={() => onView(session)} className="px-2 py-1 rounded text-xs font-medium text-blue-400 hover:bg-blue-400/10 transition-colors">View</button>
+          <a href={`/view/${session.session_id}?token=${session.view_token || ''}`} target="_blank" rel="noopener" className="px-2 py-1 rounded text-xs text-gray-500 hover:bg-white/5 transition-colors">Open</a>
+          <button onClick={() => onStop(session.session_id)} disabled={stopping === session.session_id} className="px-2 py-1 rounded text-xs font-medium text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40 active:scale-95">
+            {stopping === session.session_id ? '...' : 'Stop'}
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -39,8 +53,10 @@ function NodeCard({ node, onViewSession }) {
   const [expanded, setExpanded] = useState(false)
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(false)
+  const [acting, setActing] = useState(null)
 
   const pct = node.max_sessions > 0 ? (node.current_sessions / node.max_sessions) * 100 : 0
+  const barColor = pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-amber-500' : 'bg-emerald-500'
 
   const fetchProfiles = async () => {
     setLoading(true)
@@ -56,71 +72,57 @@ function NodeCard({ node, onViewSession }) {
     setExpanded(!expanded)
   }
 
-  const handleLaunch = async (profileId) => {
-    await fetch(`/api/nodes/${node.node_id}/profiles/${profileId}/launch`, { method: 'POST' })
-    fetchProfiles()
-  }
-
-  const handleStop = async (profileId) => {
-    await fetch(`/api/nodes/${node.node_id}/profiles/${profileId}/stop`, { method: 'POST' })
-    fetchProfiles()
+  const handleAction = async (profileId, action) => {
+    setActing(profileId)
+    await fetch(`/api/nodes/${node.node_id}/profiles/${profileId}/${action}`, { method: 'POST' })
+    await fetchProfiles()
+    setActing(null)
   }
 
   return (
-    <div className="bg-gray-800 rounded-lg border border-gray-700">
-      <div className="p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-750" onClick={handleToggle}>
-        <span className={`w-2 h-2 rounded-full ${node.online ? 'bg-green-400' : 'bg-red-400'}`}></span>
-        <div className="flex-1">
-          <div className="text-sm font-medium">{node.node_id}</div>
-          <div className="text-xs text-gray-400">{node.url}</div>
+    <div className={`rounded-xl border transition-colors ${expanded ? 'border-gray-600 bg-gray-800/80' : 'border-gray-800 bg-gray-900/50 hover:border-gray-700'}`}>
+      <div className="p-4 flex items-center gap-3 cursor-pointer select-none" onClick={handleToggle}>
+        <div className={`w-2.5 h-2.5 rounded-full ${node.online ? 'bg-emerald-400' : 'bg-red-400'} ${node.online ? 'shadow-[0_0_6px_rgba(52,211,153,0.4)]' : ''}`}></div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate">{node.node_id}</div>
+          <div className="text-xs text-gray-500 truncate">{node.url}</div>
         </div>
-        <div className="w-24">
-          <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }}></div>
+        <div className="w-28 shrink-0">
+          <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }}></div>
           </div>
-          <div className="text-xs text-gray-400 mt-1 text-center">{node.current_sessions}/{node.max_sessions}</div>
+          <div className="text-[10px] text-gray-500 mt-1 text-right tabular-nums">{node.current_sessions} / {node.max_sessions}</div>
         </div>
-        <span className="text-gray-500 text-xs">{expanded ? '▲' : '▼'}</span>
+        <svg className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
       </div>
       {expanded && (
-        <div className="border-t border-gray-700 p-3">
-          {loading && <div className="text-xs text-gray-500">Loading...</div>}
-          {!loading && profiles.length === 0 && <div className="text-xs text-gray-500">No profiles on this node</div>}
+        <div className="border-t border-gray-800 px-4 pb-4 pt-3">
+          {loading && (
+            <div className="flex items-center gap-2 text-xs text-gray-500"><div className="w-3 h-3 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>Loading profiles...</div>
+          )}
+          {!loading && profiles.length === 0 && (
+            <div className="text-xs text-gray-600 py-2">No profiles on this node</div>
+          )}
           {!loading && profiles.length > 0 && (
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-gray-500">
-                  <th className="text-left pb-1">Name</th>
-                  <th className="text-left pb-1">ID</th>
-                  <th className="text-left pb-1">Status</th>
-                  <th className="text-left pb-1">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {profiles.map(p => (
-                  <tr key={p.id} className="border-t border-gray-700/50">
-                    <td className="py-1.5">{p.name}</td>
-                    <td className="py-1.5 font-mono text-gray-400">{p.id?.slice(0, 8)}...</td>
-                    <td className="py-1.5">
-                      <span className={`inline-flex items-center gap-1 ${p.status === 'running' ? 'text-green-400' : 'text-gray-500'}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${p.status === 'running' ? 'bg-green-400' : 'bg-gray-600'}`}></span>
-                        {p.status}
-                      </span>
-                    </td>
-                    <td className="py-1.5 space-x-2">
-                      {p.status === 'running' ? (
-                        <>
-                          <button onClick={() => onViewSession({ _browser: true, node_id: node.node_id, profile_id: p.id, name: p.name })} className="text-blue-400 hover:text-blue-300">View</button>
-                          <button onClick={() => handleStop(p.id)} className="text-red-400 hover:text-red-300">Stop</button>
-                        </>
-                      ) : (
-                        <button onClick={() => handleLaunch(p.id)} className="text-green-400 hover:text-green-300">Launch</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="space-y-1.5">
+              {profiles.map(p => (
+                <div key={p.id} className="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-white/[0.02] transition-colors">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.status === 'running' ? 'bg-emerald-400' : 'bg-gray-600'}`}></span>
+                  <span className="text-sm truncate flex-1">{p.name}</span>
+                  <span className="font-mono text-[10px] text-gray-600 shrink-0">{p.id?.slice(0, 8)}</span>
+                  <div className="shrink-0">
+                    {p.status === 'running' ? (
+                      <div className="flex gap-1">
+                        <button onClick={(e) => { e.stopPropagation(); onViewSession({ _browser: true, node_id: node.node_id, profile_id: p.id, name: p.name }) }} className="px-2 py-0.5 rounded text-[11px] font-medium text-blue-400 hover:bg-blue-400/10 transition-colors">View</button>
+                        <button onClick={(e) => { e.stopPropagation(); handleAction(p.id, 'stop') }} disabled={acting === p.id} className="px-2 py-0.5 rounded text-[11px] font-medium text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40 active:scale-95">{acting === p.id ? '...' : 'Stop'}</button>
+                      </div>
+                    ) : (
+                      <button onClick={(e) => { e.stopPropagation(); handleAction(p.id, 'launch') }} disabled={acting === p.id} className="px-2 py-0.5 rounded text-[11px] font-medium text-emerald-400 hover:bg-emerald-400/10 transition-colors disabled:opacity-40 active:scale-95">{acting === p.id ? '...' : 'Launch'}</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -129,17 +131,27 @@ function NodeCard({ node, onViewSession }) {
 }
 
 function VncOverlay({ session, onClose }) {
-  let wsUrl, title, viewPageUrl
+  let wsUrl, title
   if (session._browser) {
     wsUrl = `/api/view/browser/${session.node_id}/${session.profile_id}/vnc`
     title = `${session.name || session.profile_id?.slice(0, 8)} on ${session.node_id}`
-    viewPageUrl = `/view/browser/${session.node_id}/${session.profile_id}`
   } else {
     wsUrl = `/api/view/${session.session_id}/vnc?token=${session.view_token || ''}`
     title = `${session.consumer_id?.slice(0, 16)}... on ${session.node_id}`
-    viewPageUrl = `/view/${session.session_id}?token=${session.view_token || ''}`
   }
   return <VncViewer wsUrl={wsUrl} title={title} onClose={onClose} />
+}
+
+function SectionHeader({ title, count, children }) {
+  return (
+    <div className="flex items-center justify-between px-5 py-3 border-b border-gray-800/80">
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-medium text-gray-200">{title}</h2>
+        {count !== undefined && <span className="text-[10px] font-mono bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded-md">{count}</span>}
+      </div>
+      {children}
+    </div>
+  )
 }
 
 export default function App() {
@@ -147,8 +159,10 @@ export default function App() {
   const [sessions, setSessions] = useState([])
   const [running, setRunning] = useState([])
   const [viewing, setViewing] = useState(null)
+  const [stopping, setStopping] = useState(null)
+  const [loaded, setLoaded] = useState(false)
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [statsRes, sessionsRes, runningRes] = await Promise.all([
         fetch('/api/stats'), fetch('/api/sessions'), fetch('/api/sessions/running')
@@ -156,101 +170,133 @@ export default function App() {
       if (statsRes.ok) setStats(await statsRes.json())
       if (sessionsRes.ok) setSessions(await sessionsRes.json())
       if (runningRes.ok) setRunning(await runningRes.json())
-    } catch (e) { /* ignore */ }
-  }
+    } catch (e) {}
+    setLoaded(true)
+  }, [])
 
   useEffect(() => {
     fetchData()
     const id = setInterval(fetchData, 3000)
     return () => clearInterval(id)
-  }, [])
+  }, [fetchData])
 
   const handleStop = async (sessionId) => {
+    setStopping(sessionId)
     await fetch(`/api/sessions/${sessionId}/stop`, { method: 'POST' })
+    setStopping(null)
     fetchData()
   }
 
   return (
-    <div className="min-h-screen p-6 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Browser Pool Dashboard</h1>
-
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <StatCard label="使用中 Sessions" value={sessions.length} max={stats?.max_global_sessions} />
-        <StatCard label="运行中 Browsers" value={running.length} />
-        <StatCard label="Nodes Online" value={stats?.nodes?.filter(n => n.online).length ?? 0} />
-      </div>
-
-      {/* 正在被使用的 sessions (consumer 持有中) */}
-      <div className="bg-gray-800/50 rounded-lg border border-gray-700 mb-6 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-700 font-medium">使用中 Sessions（Consumer 持有）</div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-gray-400 text-left">
-              <th className="px-3 py-2">Consumer</th>
-              <th className="px-3 py-2">Profile</th>
-              <th className="px-3 py-2">Node</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">TTL</th>
-              <th className="px-3 py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map(s => (
-              <SessionRow key={s.session_id} session={s} onStop={handleStop} onView={setViewing} />
-            ))}
-            {sessions.length === 0 && (
-              <tr><td colSpan="6" className="px-3 py-6 text-center text-gray-500">无使用中的 session</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* 活跃的 sessions (所有节点上已启动的浏览器) */}
-      <div className="bg-gray-800/50 rounded-lg border border-gray-700 mb-6 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-700 font-medium">运行中 Browsers（所有节点）</div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-gray-400 text-left">
-              <th className="px-3 py-2">Profile</th>
-              <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2">Node</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {running.map((r, i) => (
-              <tr key={i} className="border-t border-gray-700 hover:bg-gray-800/50">
-                <td className="px-3 py-2 font-mono text-xs">{r.profile_id?.slice(0, 8)}...</td>
-                <td className="px-3 py-2">{r.name}</td>
-                <td className="px-3 py-2">{r.node_id}</td>
-                <td className="px-3 py-2">
-                  <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2"></span>running
-                </td>
-                <td className="px-3 py-2 space-x-2">
-                  <button onClick={() => setViewing({ _browser: true, node_id: r.node_id, profile_id: r.profile_id, name: r.name })} className="text-blue-400 hover:text-blue-300 text-sm">View</button>
-                  <a href={`/view/browser/${r.node_id}/${r.profile_id}`} target="_blank" className="text-gray-400 hover:text-gray-300 text-sm">↗ Open</a>
-                </td>
-              </tr>
-            ))}
-            {running.length === 0 && (
-              <tr><td colSpan="5" className="px-3 py-6 text-center text-gray-500">无运行中的浏览器</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Profiles */}
-      <ProfileManager />
-
-      {/* Nodes */}
-      <div className="mb-6">
-        <div className="font-medium mb-3">Nodes</div>
-        <div className="grid grid-cols-2 gap-3">
-          {(stats?.nodes ?? []).map(n => <NodeCard key={n.node_id} node={n} onViewSession={setViewing} />)}
+    <div className="min-h-screen bg-[#0a0a0f] text-gray-100">
+      {/* Header */}
+      <header className="sticky top-0 z-30 border-b border-gray-800/60 bg-[#0a0a0f]/80 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-6 h-6 rounded-md bg-blue-500/20 border border-blue-500/30 flex items-center justify-center">
+              <span className="text-blue-400 text-xs font-bold">P</span>
+            </div>
+            <span className="text-sm font-semibold tracking-tight">Browser Pool</span>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-gray-500">
+            {stats && <span className="tabular-nums">{stats.running_sessions} active</span>}
+            <span className={`w-2 h-2 rounded-full ${stats?.nodes?.some(n => n.online) ? 'bg-emerald-400' : 'bg-gray-600'}`}></span>
+          </div>
         </div>
-      </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {/* Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatCard label="使用中 Sessions" value={sessions.length} max={stats?.max_global_sessions} accent="blue" />
+          <StatCard label="运行中 Browsers" value={running.length} accent="green" />
+          <StatCard label="在线节点" value={stats?.nodes?.filter(n => n.online).length ?? 0} accent="amber" />
+        </div>
+
+        {/* Sessions */}
+        <section className="rounded-xl border border-gray-800/60 bg-gray-900/30 overflow-hidden">
+          <SectionHeader title="使用中 Sessions" count={sessions.length} />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] uppercase tracking-wider text-gray-500 bg-gray-900/50">
+                  <th className="px-4 py-2.5 text-left font-medium">Consumer</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Profile</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Node</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Status</th>
+                  <th className="px-4 py-2.5 text-left font-medium">TTL</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!loaded && <Skeleton rows={2} />}
+                {loaded && sessions.map(s => (
+                  <SessionRow key={s.session_id} session={s} onStop={handleStop} onView={setViewing} stopping={stopping} />
+                ))}
+                {loaded && sessions.length === 0 && (
+                  <tr><td colSpan="6" className="px-4 py-10 text-center text-gray-600 text-sm">无使用中的 session</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* Running browsers */}
+        <section className="rounded-xl border border-gray-800/60 bg-gray-900/30 overflow-hidden">
+          <SectionHeader title="运行中 Browsers" count={running.length} />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] uppercase tracking-wider text-gray-500 bg-gray-900/50">
+                  <th className="px-4 py-2.5 text-left font-medium">Profile</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Name</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Node</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Status</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!loaded && <Skeleton rows={2} />}
+                {loaded && running.map((r, i) => (
+                  <tr key={i} className="border-t border-gray-800/60 transition-colors hover:bg-white/[0.02]">
+                    <td className="px-4 py-2.5 font-mono text-xs text-gray-400">{r.profile_id?.slice(0, 8)}</td>
+                    <td className="px-4 py-2.5 text-sm">{r.name}</td>
+                    <td className="px-4 py-2.5 text-sm text-gray-400">{r.node_id}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>running
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => setViewing({ _browser: true, node_id: r.node_id, profile_id: r.profile_id, name: r.name })} className="px-2 py-1 rounded text-xs font-medium text-blue-400 hover:bg-blue-400/10 transition-colors">View</button>
+                        <a href={`/view/browser/${r.node_id}/${r.profile_id}`} target="_blank" rel="noopener" className="px-2 py-1 rounded text-xs text-gray-500 hover:bg-white/5 transition-colors">Open</a>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {loaded && running.length === 0 && (
+                  <tr><td colSpan="5" className="px-4 py-10 text-center text-gray-600 text-sm">无运行中的浏览器</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* Profiles */}
+        <ProfileManager />
+
+        {/* Nodes */}
+        <section>
+          <h2 className="text-sm font-medium text-gray-200 mb-3">Nodes</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {(stats?.nodes ?? []).map(n => <NodeCard key={n.node_id} node={n} onViewSession={setViewing} />)}
+            {loaded && (!stats?.nodes || stats.nodes.length === 0) && (
+              <div className="col-span-2 text-center py-10 text-gray-600 text-sm">等待节点注册...</div>
+            )}
+          </div>
+        </section>
+      </main>
 
       {/* VNC Viewer overlay */}
       {viewing && <VncOverlay session={viewing} onClose={() => setViewing(null)} />}
