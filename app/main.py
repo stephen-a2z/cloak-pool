@@ -55,7 +55,7 @@ async def health():
 
 @app.post("/api/nodes/heartbeat")
 async def node_heartbeat(body: NodeHeartbeat):
-    registry.register_or_heartbeat(body.node_id, body.url, body.max_sessions, body.current_sessions)
+    registry.register_or_heartbeat(body.node_id, body.url, body.max_sessions, body.current_sessions, body.cpu_percent, body.memory_percent, body.disk_percent)
     return {"ok": True}
 
 
@@ -66,6 +66,7 @@ async def list_nodes():
             node_id=n.node_id, url=n.url, max_sessions=n.max_sessions,
             current_sessions=n.current_sessions, online=n.online,
             last_heartbeat=datetime.fromtimestamp(n.last_heartbeat, tz=timezone.utc).isoformat(),
+            cpu_percent=n.cpu_percent, memory_percent=n.memory_percent, disk_percent=n.disk_percent,
         )
         for n in registry.all_nodes()
     ]

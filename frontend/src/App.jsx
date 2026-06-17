@@ -49,6 +49,16 @@ function SessionRow({ session, onStop, onView, stopping }) {
   )
 }
 
+function MetricPill({ label, value }) {
+  const color = value > 80 ? 'text-red-400' : value > 60 ? 'text-amber-400' : 'text-gray-400'
+  return (
+    <div className="text-center">
+      <div className={`text-[11px] font-mono tabular-nums ${color}`}>{Math.round(value)}%</div>
+      <div className="text-[9px] text-gray-600 uppercase">{label}</div>
+    </div>
+  )
+}
+
 function NodeCard({ node, onViewSession }) {
   const [expanded, setExpanded] = useState(false)
   const [profiles, setProfiles] = useState([])
@@ -86,6 +96,11 @@ function NodeCard({ node, onViewSession }) {
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium truncate">{node.node_id}</div>
           <div className="text-xs text-gray-500 truncate">{node.url}</div>
+        </div>
+        <div className="hidden sm:flex items-center gap-3 shrink-0">
+          <MetricPill label="CPU" value={node.cpu_percent} />
+          <MetricPill label="MEM" value={node.memory_percent} />
+          <MetricPill label="DISK" value={node.disk_percent} />
         </div>
         <div className="w-28 shrink-0">
           <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">

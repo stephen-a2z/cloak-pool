@@ -49,6 +49,9 @@ class NodeHeartbeat(BaseModel):
     url: str
     max_sessions: int
     current_sessions: int
+    cpu_percent: float = 0
+    memory_percent: float = 0
+    disk_percent: float = 0
 
 
 class NodeInfo(BaseModel):
@@ -58,6 +61,9 @@ class NodeInfo(BaseModel):
     current_sessions: int
     online: bool
     last_heartbeat: str
+    cpu_percent: float = 0
+    memory_percent: float = 0
+    disk_percent: float = 0
 
 
 class SessionInfo(BaseModel):

@@ -14,6 +14,9 @@ class NodeState:
     current_sessions: int = 0
     last_heartbeat: float = 0.0
     affinity: dict[str, float] = field(default_factory=dict)  # profile_id → last_used_ts
+    cpu_percent: float = 0
+    memory_percent: float = 0
+    disk_percent: float = 0
 
     @property
     def available_slots(self) -> int:
@@ -28,17 +31,21 @@ class NodeRegistry:
     def __init__(self):
         self._nodes: dict[str, NodeState] = {}
 
-    def register_or_heartbeat(self, node_id: str, url: str, max_sessions: int, current_sessions: int) -> None:
+    def register_or_heartbeat(self, node_id: str, url: str, max_sessions: int, current_sessions: int, cpu_percent: float = 0, memory_percent: float = 0, disk_percent: float = 0) -> None:
         if node_id in self._nodes:
             n = self._nodes[node_id]
             n.url = url
             n.max_sessions = max_sessions
             n.current_sessions = current_sessions
             n.last_heartbeat = time.time()
+            n.cpu_percent = cpu_percent
+            n.memory_percent = memory_percent
+            n.disk_percent = disk_percent
         else:
             self._nodes[node_id] = NodeState(
                 node_id=node_id, url=url, max_sessions=max_sessions,
                 current_sessions=current_sessions, last_heartbeat=time.time(),
+                cpu_percent=cpu_percent, memory_percent=memory_percent, disk_percent=disk_percent,
             )
 
     def get_available_nodes(self) -> list[NodeState]:
