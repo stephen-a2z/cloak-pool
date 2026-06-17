@@ -217,10 +217,26 @@ async def list_mappings():
     return [{"consumer_id": r[0], "profile_id": r[1], "created_at": r[2]} for r in rows]
 
 
-# ── View: noVNC page with token auth ─────────────────────────────────────────
+# ── View: noVNC pages ─────────────────────────────────────────────────────────
+
+def _build_vnc_html(title: str, ws_path: str) -> str:
+    return f"""<!DOCTYPE html>
+<html><head><title>{title}</title>
+<style>body{{margin:0;overflow:hidden}}#screen{{width:100vw;height:100vh}}</style>
+</head><body>
+<div id="screen"></div>
+<script type="module">
+import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/lib/rfb.js';
+const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '{ws_path}';
+const rfb = new RFB(document.getElementById('screen'), wsUrl);
+rfb.scaleViewport = true;
+rfb.resizeSession = true;
+</script></body></html>"""
+
 
 @app.get("/view/{session_id}")
 async def view_session(session_id: str, token: str = Query(...)):
+    """View page for sessions (token-authenticated, shareable URL)."""
     dbc = db.get_db()
     rows = await dbc.execute_fetchall(
         "SELECT view_token, node_url, profile_id FROM sessions WHERE session_id = ? AND status = 'active'",
@@ -230,28 +246,26 @@ async def view_session(session_id: str, token: str = Query(...)):
         raise HTTPException(404, "Session not found or not active")
     if rows[0][0] != token:
         raise HTTPException(403, "Invalid view token")
-    node_url = rows[0][1]
-    profile_id = rows[0][2]
-    # Return minimal noVNC HTML page
-    vnc_ws_url = f"/api/view/{session_id}/vnc?token={token}"
-    html = f"""<!DOCTYPE html>
-<html><head><title>Browser View - {session_id[:8]}</title>
-<style>body{{margin:0;overflow:hidden}}#screen{{width:100vw;height:100vh}}</style>
-</head><body>
-<div id="screen"></div>
-<script src="https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/lib/rfb.js" type="module"></script>
-<script type="module">
-import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/lib/rfb.js';
-const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '{vnc_ws_url}';
-const rfb = new RFB(document.getElementById('screen'), wsUrl);
-rfb.scaleViewport = true;
-rfb.resizeSession = true;
-</script></body></html>"""
-    return HTMLResponse(html)
+    return HTMLResponse(_build_vnc_html(
+        f"Session - {session_id[:8]}",
+        f"/api/view/{session_id}/vnc?token={token}",
+    ))
 
+
+@app.get("/view/browser/{node_id}/{profile_id}")
+async def view_browser(node_id: str, profile_id: str):
+    """View page for any running browser (admin, no token needed)."""
+    node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
+    if not node:
+        raise HTTPException(404, "Node not found")
+    return HTMLResponse(_build_vnc_html(
+        f"Browser - {profile_id[:8]} on {node_id}",
+        f"/api/view/browser/{node_id}/{profile_id}/vnc",
+    ))
 
 @app.websocket("/api/view/{session_id}/vnc")
 async def vnc_proxy(websocket: WebSocket, session_id: str, token: str = Query(...)):
+    """VNC proxy for session view (token-authenticated)."""
     dbc = db.get_db()
     rows = await dbc.execute_fetchall(
         "SELECT view_token, node_url, profile_id FROM sessions WHERE session_id = ? AND status = 'active'",
@@ -260,12 +274,23 @@ async def vnc_proxy(websocket: WebSocket, session_id: str, token: str = Query(..
     if not rows or rows[0][0] != token:
         await websocket.close(code=4403, reason="Forbidden")
         return
-
     node_url = rows[0][1]
     profile_id = rows[0][2]
-    await websocket.accept(subprotocol="binary")
+    await _proxy_vnc(websocket, node_url, profile_id)
 
-    # Proxy to node's VNC WebSocket
+
+@app.websocket("/api/view/browser/{node_id}/{profile_id}/vnc")
+async def vnc_proxy_browser(websocket: WebSocket, node_id: str, profile_id: str):
+    """VNC proxy for direct browser view (admin, no token)."""
+    node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
+    if not node:
+        await websocket.close(code=4004, reason="Node not found")
+        return
+    await _proxy_vnc(websocket, node.url, profile_id)
+
+
+async def _proxy_vnc(websocket: WebSocket, node_url: str, profile_id: str):
+    await websocket.accept(subprotocol="binary")
     import websockets
     target_ws = f"ws://{node_url.replace('http://', '')}/api/profiles/{profile_id}/vnc"
     try:

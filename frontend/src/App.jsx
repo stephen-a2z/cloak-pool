@@ -26,6 +26,7 @@ function SessionRow({ session, onStop, onView }) {
       <td className="px-3 py-2 font-mono">{mins}:{secs.toString().padStart(2, '0')}</td>
       <td className="px-3 py-2 space-x-2">
         <button onClick={() => onView(session)} className="text-blue-400 hover:text-blue-300 text-sm">View</button>
+        <a href={`/view/${session.session_id}?token=${session.view_token || ''}`} target="_blank" className="text-gray-400 hover:text-gray-300 text-sm">↗ Open</a>
         <button onClick={() => onStop(session.session_id)} className="text-red-400 hover:text-red-300 text-sm">Stop</button>
       </td>
     </tr>
@@ -52,12 +53,20 @@ function NodeRow({ node }) {
 }
 
 function VncViewer({ session, onClose }) {
-  const viewUrl = `/view/${session.session_id}?token=${session.view_token || ''}`
+  const viewUrl = session._browser
+    ? `/view/browser/${session.node_id}/${session.profile_id}`
+    : `/view/${session.session_id}?token=${session.view_token || ''}`
+  const label = session._browser
+    ? `${session.name || session.profile_id?.slice(0, 8)} on ${session.node_id}`
+    : `${session.consumer_id?.slice(0, 16)}... on ${session.node_id}`
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex flex-col">
       <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
-        <span className="text-sm">Viewing: {session.consumer_id.slice(0, 16)}... on {session.node_id}</span>
-        <button onClick={onClose} className="text-gray-400 hover:text-white text-lg">&times;</button>
+        <span className="text-sm">Viewing: {label}</span>
+        <div className="flex items-center gap-3">
+          <a href={viewUrl} target="_blank" className="text-gray-400 hover:text-white text-sm">↗ 新窗口</a>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-lg">&times;</button>
+        </div>
       </div>
       <iframe src={viewUrl} className="flex-1 w-full border-0" />
     </div>
@@ -138,7 +147,7 @@ export default function App() {
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Node</th>
               <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">CDP</th>
+              <th className="px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -150,7 +159,10 @@ export default function App() {
                 <td className="px-3 py-2">
                   <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2"></span>running
                 </td>
-                <td className="px-3 py-2 font-mono text-xs text-gray-400">{r.cdp_url || '-'}</td>
+                <td className="px-3 py-2 space-x-2">
+                  <button onClick={() => setViewing({ _browser: true, node_id: r.node_id, profile_id: r.profile_id, name: r.name })} className="text-blue-400 hover:text-blue-300 text-sm">View</button>
+                  <a href={`/view/browser/${r.node_id}/${r.profile_id}`} target="_blank" className="text-gray-400 hover:text-gray-300 text-sm">↗ Open</a>
+                </td>
               </tr>
             ))}
             {running.length === 0 && (
