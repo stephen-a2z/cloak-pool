@@ -1,5 +1,13 @@
 version: "3.8"
 
+# ┌─────────────────────────────────────────────────────┐
+# │  部署前先创建 .env 文件:                               │
+# │  cp .env.example .env                               │
+# │  编辑 HOST_IP 为本机内网 IP                            │
+# │  编辑 MASTER_IP 为 master 节点内网 IP                  │
+# │  编辑 NODE_ID 为本节点名称 (如 node-1)                 │
+# └─────────────────────────────────────────────────────┘
+
 services:
   cloakbrowser:
     image: cloakhq/cloakbrowser-manager
@@ -16,9 +24,9 @@ services:
       - "9001:9001"
     environment:
       - ROLE=worker
-      - MASTER_URL=http://<MASTER_IP>:9000        # ← 改成 master 的 IP
-      - NODE_ID=<NODE_NAME>                       # ← 改成本节点名称，如 node-1
-      - NODE_ADVERTISE_URL=http://<THIS_IP>:8080  # ← 改成本机 IP:8080
+      - MASTER_URL=http://${MASTER_IP}:9000
+      - NODE_ID=${NODE_ID:-node-1}
+      - NODE_ADVERTISE_URL=http://${HOST_IP}:8080
       - MAX_NODE_SESSIONS=5
       - WORKER_PORT=9001
     depends_on:
