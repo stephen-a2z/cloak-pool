@@ -66,6 +66,17 @@ class PoolManager:
                     r = await client.post(f"{cbm_url}/api/profiles", json=profile_config)
                     if r.status_code not in (200, 201):
                         raise HTTPException(502, f"Failed to create profile on node: {r.text}")
+                    # Use the profile ID assigned by CloakBrowser-Manager
+                    cbm_profile_id = r.json().get("id")
+                    if cbm_profile_id and cbm_profile_id != profile_id:
+                        # Update local mapping to match CBM's ID
+                        profile_id = cbm_profile_id
+                        db_conn = get_db()
+                        await db_conn.execute(
+                            "UPDATE consumer_profiles SET profile_id = ? WHERE consumer_id = ?",
+                            (profile_id, req.consumer_id),
+                        )
+                        await db_conn.commit()
                 else:
                     update_fields = self._build_update_fields(req)
                     if update_fields:
