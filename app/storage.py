@@ -8,6 +8,9 @@ def _profile_dir(profile_id: str) -> Path:
 
 
 def profile_exists(profile_id: str) -> bool:
+    # NFS mode: check tar.gz directly
+    if cfg.NFS_PROFILES_DIR:
+        return (Path(cfg.NFS_PROFILES_DIR) / f"{profile_id}.tar.gz").exists()
     return (_profile_dir(profile_id) / "userdata.tar.gz").exists()
 
 

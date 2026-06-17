@@ -46,6 +46,9 @@ services:
       - NODE_ADVERTISE_URL=http://${HOST_IP}:8080
       - MAX_NODE_SESSIONS=5
       - WORKER_PORT=9001
+      - NFS_PROFILES_DIR=/nfs/profiles
+    volumes:
+      - ./data/profiles:/nfs/profiles
     depends_on:
       - master
       - cloakbrowser

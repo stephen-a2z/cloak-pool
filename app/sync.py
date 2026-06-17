@@ -3,7 +3,10 @@ import io
 import shutil
 import tarfile
 from pathlib import Path
+
 import httpx
+
+from app.config import cfg
 
 EXCLUDE_DIRS = {"Cache", "Code Cache", "GPUCache", "BrowserMetrics", "crashpad"}
 EXCLUDE_PREFIXES = ("Service Worker",)
@@ -20,15 +23,50 @@ def _should_exclude(name: str) -> bool:
     return False
 
 
-async def pull_profile(master_url: str, profile_id: str, local_dir: Path) -> bool:
-    """Download profile tar.gz from master and extract to local_dir. Returns False if no data on master."""
+def _cleanup_cache_dirs(local_dir: Path) -> None:
+    for item in local_dir.rglob("*"):
+        if item.is_dir() and _should_exclude(str(item.relative_to(local_dir))):
+            shutil.rmtree(item, ignore_errors=True)
+
+
+# ── NFS mode ──────────────────────────────────────────────────────────────────
+
+def _nfs_path() -> Path:
+    return Path(cfg.NFS_PROFILES_DIR)
+
+
+async def _pull_nfs(profile_id: str, local_dir: Path) -> bool:
+    src = _nfs_path() / f"{profile_id}.tar.gz"
+    if not src.exists():
+        return False
+    if local_dir.exists():
+        shutil.rmtree(local_dir)
+    local_dir.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(src, "r:gz") as tar:
+        tar.extractall(local_dir, filter="data")
+    return True
+
+
+async def _push_nfs(profile_id: str, local_dir: Path) -> None:
+    if not local_dir.exists():
+        return
+    _cleanup_cache_dirs(local_dir)
+    dest = _nfs_path() / f"{profile_id}.tar.gz"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(dest, "w:gz", compresslevel=6) as tar:
+        for item in local_dir.iterdir():
+            tar.add(item, arcname=item.name)
+
+
+# ── HTTP mode ─────────────────────────────────────────────────────────────────
+
+async def _pull_http(master_url: str, profile_id: str, local_dir: Path) -> bool:
     url = f"{master_url}/internal/profiles/{profile_id}/download"
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get(url)
     if r.status_code == 404:
         return False
     r.raise_for_status()
-    # Clear local dir and extract
     if local_dir.exists():
         shutil.rmtree(local_dir)
     local_dir.mkdir(parents=True, exist_ok=True)
@@ -38,22 +76,31 @@ async def pull_profile(master_url: str, profile_id: str, local_dir: Path) -> boo
     return True
 
 
-async def push_profile(master_url: str, profile_id: str, local_dir: Path) -> None:
-    """Clean cache dirs, pack user-data-dir, upload to master."""
+async def _push_http(master_url: str, profile_id: str, local_dir: Path) -> None:
     if not local_dir.exists():
         return
-    # Clean excluded directories before packing
-    for item in local_dir.rglob("*"):
-        if item.is_dir() and _should_exclude(str(item.relative_to(local_dir))):
-            shutil.rmtree(item, ignore_errors=True)
-    # Create tar.gz in memory
+    _cleanup_cache_dirs(local_dir)
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=6) as tar:
         for item in local_dir.iterdir():
             tar.add(item, arcname=item.name)
     buf.seek(0)
-    # Upload
     url = f"{master_url}/internal/profiles/{profile_id}/upload"
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(url, files={"file": ("userdata.tar.gz", buf, "application/gzip")})
     r.raise_for_status()
+
+
+# ── Public API (auto-selects mode based on config) ────────────────────────────
+
+async def pull_profile(master_url: str, profile_id: str, local_dir: Path) -> bool:
+    if cfg.NFS_PROFILES_DIR:
+        return await _pull_nfs(profile_id, local_dir)
+    return await _pull_http(master_url, profile_id, local_dir)
+
+
+async def push_profile(master_url: str, profile_id: str, local_dir: Path) -> None:
+    if cfg.NFS_PROFILES_DIR:
+        await _push_nfs(profile_id, local_dir)
+    else:
+        await _push_http(master_url, profile_id, local_dir)
