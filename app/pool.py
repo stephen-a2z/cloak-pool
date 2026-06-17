@@ -78,11 +78,28 @@ class PoolManager:
                         )
                         await db_conn.commit()
                 else:
-                    update_fields = self._build_update_fields(req)
-                    if update_fields:
-                        r = await client.put(f"{cbm_url}/api/profiles/{profile_id}", json=update_fields)
+                    # Check if profile exists on this node (may have been scheduled to a different node)
+                    check = await client.get(f"{cbm_url}/api/profiles/{profile_id}")
+                    if check.status_code == 404:
+                        # Profile doesn't exist on this node, create it
+                        r = await client.post(f"{cbm_url}/api/profiles", json=profile_config)
                         if r.status_code not in (200, 201):
-                            raise HTTPException(502, f"Failed to update profile on node: {r.text}")
+                            raise HTTPException(502, f"Failed to create profile on node: {r.text}")
+                        cbm_profile_id = r.json().get("id")
+                        if cbm_profile_id and cbm_profile_id != profile_id:
+                            profile_id = cbm_profile_id
+                            db_conn = get_db()
+                            await db_conn.execute(
+                                "UPDATE consumer_profiles SET profile_id = ? WHERE consumer_id = ?",
+                                (profile_id, req.consumer_id),
+                            )
+                            await db_conn.commit()
+                    else:
+                        update_fields = self._build_update_fields(req)
+                        if update_fields:
+                            r = await client.put(f"{cbm_url}/api/profiles/{profile_id}", json=update_fields)
+                            if r.status_code not in (200, 201):
+                                raise HTTPException(502, f"Failed to update profile on node: {r.text}")
 
                 # 6. Pull profile data from master to worker
                 if storage.profile_exists(profile_id):
