@@ -64,6 +64,8 @@ function NodeCard({ node, onViewSession }) {
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(false)
   const [acting, setActing] = useState(null)
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState('')
 
   const pct = node.max_sessions > 0 ? (node.current_sessions / node.max_sessions) * 100 : 0
   const barColor = pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-amber-500' : 'bg-emerald-500'
@@ -87,6 +89,20 @@ function NodeCard({ node, onViewSession }) {
     await fetch(`/api/nodes/${node.node_id}/profiles/${profileId}/${action}`, { method: 'POST' })
     await fetchProfiles()
     setActing(null)
+  }
+
+  const handleCreate = async (e) => {
+    e.preventDefault()
+    if (!newName.trim()) return
+    setActing('new')
+    await fetch(`/api/nodes/${node.node_id}/profiles`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName.trim() })
+    })
+    setNewName('')
+    setCreating(false)
+    setActing(null)
+    await fetchProfiles()
   }
 
   return (
@@ -137,6 +153,20 @@ function NodeCard({ node, onViewSession }) {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {!loading && (
+            <div className="mt-3 pt-2 border-t border-gray-800/50">
+              {!creating ? (
+                <button onClick={() => setCreating(true)} className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 hover:bg-white/5 hover:text-gray-200 transition-colors">+ New Profile</button>
+              ) : (
+                <form onSubmit={handleCreate} className="flex items-center gap-2">
+                  <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Profile name" autoFocus
+                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs focus:border-blue-500/50 focus:outline-none" />
+                  <button type="submit" disabled={acting === 'new'} className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50 active:scale-95">{acting === 'new' ? '...' : 'Create'}</button>
+                  <button type="button" onClick={() => { setCreating(false); setNewName('') }} className="px-2 py-1.5 rounded-lg text-[11px] text-gray-500 hover:bg-white/5">Cancel</button>
+                </form>
+              )}
             </div>
           )}
         </div>

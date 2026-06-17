@@ -117,6 +117,29 @@ async def get_node_profiles(node_id: str):
         raise HTTPException(502, f"Node unreachable: {exc}")
 
 
+@app.post("/api/nodes/{node_id}/profiles")
+async def create_node_profile(node_id: str, body: dict):
+    """Create a new profile on a specific CBM node using global defaults."""
+    node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
+    if not node or not node.online:
+        raise HTTPException(404, "Node not found or offline")
+    dbc = db.get_db()
+    rows = await dbc.execute_fetchall("SELECT * FROM global_defaults WHERE id = 1")
+    defaults = {k: v for k, v in dict(rows[0]).items() if k not in ("id", "updated_at", "notes") and v is not None} if rows else {}
+    profile_data = {**defaults, **{k: v for k, v in body.items() if v}}
+    profile_data.setdefault("name", "New Profile")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(f"{node.url}/api/profiles", json=profile_data)
+            if r.status_code not in (200, 201):
+                raise HTTPException(r.status_code, r.json().get("detail", "Create failed"))
+            return r.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, f"Node unreachable: {exc}")
+
+
 @app.post("/api/nodes/{node_id}/profiles/{profile_id}/launch")
 async def launch_node_profile(node_id: str, profile_id: str):
     """Launch a profile on a specific node."""
