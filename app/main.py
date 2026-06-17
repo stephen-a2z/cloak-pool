@@ -98,6 +98,32 @@ async def reset(req: ResetRequest):
 
 # ── Profile CRUD ───────────────────────────────────────────────────────────────
 
+async def _sync_profile_to_nodes(profile_id: str, profile_data: dict, action: str = "upsert"):
+    """Sync profile create/update/delete to all online CBM nodes (best effort)."""
+    nodes = registry.get_available_nodes()
+    async with httpx.AsyncClient(timeout=5) as client:
+        for node in nodes:
+            try:
+                if action == "delete":
+                    await client.delete(f"{node.url}/api/profiles/{profile_id}")
+                else:
+                    # Try update first, create if 404
+                    r = await client.put(f"{node.url}/api/profiles/{profile_id}", json=profile_data)
+                    if r.status_code == 404:
+                        await client.post(f"{node.url}/api/profiles", json=profile_data)
+            except Exception:
+                pass  # best effort
+
+
+def _profile_to_cbm_config(row: dict) -> dict:
+    """Convert DB profile row to CloakBrowser-Manager profile config."""
+    config = {"name": row["name"], "fingerprint_seed": row["fingerprint_seed"]}
+    config["launch_args"] = ["--disk-cache-size=1048576", "--media-cache-size=1048576"]
+    for field in ("proxy", "timezone", "locale", "platform", "user_agent", "screen_width", "screen_height"):
+        if row.get(field):
+            config[field] = row[field]
+    return config
+
 @app.get("/api/profiles", response_model=list[ProfileInfo])
 async def list_profiles():
     dbc = db.get_db()
@@ -124,6 +150,8 @@ async def create_profile(req: ProfileCreate):
     rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
     row = dict(rows[0])
     row["has_data"] = False
+    # Sync to all CBM nodes
+    await _sync_profile_to_nodes(profile_id, _profile_to_cbm_config(row))
     return ProfileInfo(**row)
 
 
@@ -155,6 +183,8 @@ async def update_profile(profile_id: str, req: ProfileUpdate):
     rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
     row = dict(rows[0])
     row["has_data"] = storage.profile_exists(profile_id)
+    # Sync to all CBM nodes
+    await _sync_profile_to_nodes(profile_id, _profile_to_cbm_config(row))
     return ProfileInfo(**row)
 
 
@@ -168,6 +198,8 @@ async def delete_profile(profile_id: str):
     await dbc.execute("DELETE FROM consumer_profiles WHERE profile_id = ?", (profile_id,))
     await dbc.commit()
     storage.delete_profile_data(profile_id)
+    # Sync delete to all CBM nodes
+    await _sync_profile_to_nodes(profile_id, {}, action="delete")
     return {"ok": True}
 
 
