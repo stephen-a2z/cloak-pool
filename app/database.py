@@ -25,10 +25,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS profiles (
-    profile_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    fingerprint_seed INTEGER,
+CREATE TABLE IF NOT EXISTS global_defaults (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
     proxy TEXT,
     timezone TEXT,
     locale TEXT,
@@ -37,9 +35,10 @@ CREATE TABLE IF NOT EXISTS profiles (
     screen_width INTEGER DEFAULT 1920,
     screen_height INTEGER DEFAULT 1080,
     notes TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+INSERT OR IGNORE INTO global_defaults (id) VALUES (1);
 """
 
 

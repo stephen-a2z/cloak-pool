@@ -53,7 +53,12 @@ class PoolManager:
 
         # 5. Create or update profile on CloakBrowser-Manager
         cbm_url = node.url
-        profile_config = self._build_profile_config(req, profile_id, fingerprint_seed)
+        # Fetch global defaults to fill missing fields
+        from app.database import get_db as _get_db
+        _dbc = _get_db()
+        _def_rows = await _dbc.execute_fetchall("SELECT * FROM global_defaults WHERE id = 1")
+        _defaults = {k: v for k, v in dict(_def_rows[0]).items() if k not in ("id", "updated_at", "notes") and v is not None} if _def_rows else {}
+        profile_config = self._build_profile_config(req, profile_id, fingerprint_seed, _defaults)
 
         try:
             async with httpx.AsyncClient(timeout=15) as client:
@@ -131,26 +136,19 @@ class PoolManager:
             expires_at=expires_at.isoformat(),
         )
 
-    def _build_profile_config(self, req: AcquireRequest, profile_id: str, seed: int) -> dict:
+    def _build_profile_config(self, req: AcquireRequest, profile_id: str, seed: int, defaults: dict = None) -> dict:
+        d = defaults or {}
         config = {
             "name": req.consumer_id,
             "fingerprint_seed": seed,
             "launch_args": ["--disk-cache-size=1048576", "--media-cache-size=1048576"],
         }
-        if req.proxy:
-            config["proxy"] = req.proxy
-        if req.timezone:
-            config["timezone"] = req.timezone
-        if req.locale:
-            config["locale"] = req.locale
-        if req.platform:
-            config["platform"] = req.platform
-        if req.user_agent:
-            config["user_agent"] = req.user_agent
-        if req.screen_width:
-            config["screen_width"] = req.screen_width
-        if req.screen_height:
-            config["screen_height"] = req.screen_height
+        for field in ("proxy", "timezone", "locale", "platform", "user_agent", "screen_width", "screen_height"):
+            val = getattr(req, field, None)
+            if val is not None:
+                config[field] = val
+            elif field in d:
+                config[field] = d[field]
         return config
 
     def _build_update_fields(self, req: AcquireRequest) -> dict:

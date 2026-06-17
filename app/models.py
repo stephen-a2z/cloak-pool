@@ -92,11 +92,9 @@ class SyncRequest(BaseModel):
     local_dir: str
 
 
-# ── Profile CRUD ──────────────────────────────────────────────────────────────
+# ── Global Defaults ───────────────────────────────────────────────────────────
 
-class ProfileCreate(BaseModel):
-    name: str
-    fingerprint_seed: int | None = None
+class GlobalDefaults(BaseModel):
     proxy: str | None = None
     timezone: str | None = None
     locale: str | None = None
@@ -105,11 +103,10 @@ class ProfileCreate(BaseModel):
     screen_width: int = 1920
     screen_height: int = 1080
     notes: str | None = None
+    updated_at: str = ""
 
 
-class ProfileUpdate(BaseModel):
-    name: str | None = None
-    fingerprint_seed: int | None = None
+class GlobalDefaultsUpdate(BaseModel):
     proxy: str | None = None
     timezone: str | None = None
     locale: str | None = None
@@ -118,20 +115,3 @@ class ProfileUpdate(BaseModel):
     screen_width: int | None = None
     screen_height: int | None = None
     notes: str | None = None
-
-
-class ProfileInfo(BaseModel):
-    profile_id: str
-    name: str
-    fingerprint_seed: int | None = None
-    proxy: str | None = None
-    timezone: str | None = None
-    locale: str | None = None
-    platform: str = "windows"
-    user_agent: str | None = None
-    screen_width: int = 1920
-    screen_height: int = 1080
-    notes: str | None = None
-    has_data: bool = False
-    created_at: str
-    updated_at: str

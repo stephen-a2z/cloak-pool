@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from app.config import cfg
 from app import database as db
-from app.models import AcquireRequest, AcquireResponse, ReleaseRequest, RenewRequest, RenewResponse, ResetRequest, NodeHeartbeat, NodeInfo, SessionInfo, StatsResponse, ProfileCreate, ProfileUpdate, ProfileInfo
+from app.models import AcquireRequest, AcquireResponse, ReleaseRequest, RenewRequest, RenewResponse, ResetRequest, NodeHeartbeat, NodeInfo, SessionInfo, StatsResponse, GlobalDefaults, GlobalDefaultsUpdate
 from app.nodes import NodeRegistry
 from app.pool import PoolManager
 from app.ttl_watcher import TTLWatcher
@@ -153,116 +153,38 @@ async def stop_node_profile(node_id: str, profile_id: str):
         raise HTTPException(502, f"Node unreachable: {exc}")
 
 
-# ── Profile CRUD ───────────────────────────────────────────────────────────────
+# ── Global Defaults ────────────────────────────────────────────────────────────
 
-async def _sync_profile_to_nodes(profile_id: str, profile_data: dict, action: str = "update"):
-    """Sync profile update/delete to all online CBM nodes (best effort).
-    Create is NOT synced here — CBM profiles are created on acquire (which assigns the correct ID).
-    """
-    import asyncio as _aio
-    nodes = [n for n in registry.all_nodes() if n.online]
-    if not nodes:
-        return
-
-    async def _sync_one(node):
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                if action == "delete":
-                    await client.delete(f"{node.url}/api/profiles/{profile_id}")
-                elif action == "update":
-                    await client.put(f"{node.url}/api/profiles/{profile_id}", json=profile_data)
-        except Exception:
-            pass
-
-    await _aio.gather(*[_sync_one(n) for n in nodes])
-
-
-def _profile_to_cbm_config(row: dict) -> dict:
-    """Convert DB profile row to CloakBrowser-Manager profile config."""
-    config = {"name": row["name"], "fingerprint_seed": row["fingerprint_seed"]}
-    config["launch_args"] = ["--disk-cache-size=1048576", "--media-cache-size=1048576"]
-    for field in ("proxy", "timezone", "locale", "platform", "user_agent", "screen_width", "screen_height"):
-        if row.get(field):
-            config[field] = row[field]
-    return config
-
-@app.get("/api/profiles", response_model=list[ProfileInfo])
-async def list_profiles():
+@app.get("/api/defaults", response_model=GlobalDefaults)
+async def get_defaults():
     dbc = db.get_db()
-    rows = await dbc.execute_fetchall("SELECT * FROM profiles ORDER BY created_at DESC")
-    results = []
-    for r in rows:
-        row = dict(r)
-        row["has_data"] = storage.profile_exists(row["profile_id"])
-        results.append(ProfileInfo(**row))
-    return results
+    rows = await dbc.execute_fetchall("SELECT * FROM global_defaults WHERE id = 1")
+    return GlobalDefaults(**dict(rows[0]))
 
 
-@app.post("/api/profiles", response_model=ProfileInfo, status_code=201)
-async def create_profile(req: ProfileCreate):
-    import uuid, random
-    profile_id = str(uuid.uuid4())
-    seed = req.fingerprint_seed if req.fingerprint_seed is not None else random.randint(0, 2**31 - 1)
+@app.put("/api/defaults", response_model=GlobalDefaults)
+async def update_defaults(req: GlobalDefaultsUpdate):
     dbc = db.get_db()
-    await dbc.execute(
-        "INSERT INTO profiles (profile_id, name, fingerprint_seed, proxy, timezone, locale, platform, user_agent, screen_width, screen_height, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (profile_id, req.name, seed, req.proxy, req.timezone, req.locale, req.platform, req.user_agent, req.screen_width, req.screen_height, req.notes),
-    )
-    await dbc.commit()
-    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
-    row = dict(rows[0])
-    row["has_data"] = False
-    # Sync to all CBM nodes
-    await _sync_profile_to_nodes(profile_id, _profile_to_cbm_config(row))
-    return ProfileInfo(**row)
-
-
-@app.get("/api/profiles/{profile_id}", response_model=ProfileInfo)
-async def get_profile(profile_id: str):
-    dbc = db.get_db()
-    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
-    if not rows:
-        raise HTTPException(404, "Profile not found")
-    row = dict(rows[0])
-    row["has_data"] = storage.profile_exists(profile_id)
-    return ProfileInfo(**row)
-
-
-@app.put("/api/profiles/{profile_id}", response_model=ProfileInfo)
-async def update_profile(profile_id: str, req: ProfileUpdate):
-    dbc = db.get_db()
-    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
-    if not rows:
-        raise HTTPException(404, "Profile not found")
     fields = req.model_dump(exclude_unset=True)
     if not fields:
         raise HTTPException(400, "No fields to update")
     fields["updated_at"] = datetime.now(timezone.utc).isoformat()
     set_clause = ", ".join(f"{k} = ?" for k in fields)
-    values = list(fields.values()) + [profile_id]
-    await dbc.execute(f"UPDATE profiles SET {set_clause} WHERE profile_id = ?", values)
+    values = list(fields.values())
+    await dbc.execute(f"UPDATE global_defaults SET {set_clause} WHERE id = 1", values)
     await dbc.commit()
-    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
-    row = dict(rows[0])
-    row["has_data"] = storage.profile_exists(profile_id)
-    # Sync to all CBM nodes
-    await _sync_profile_to_nodes(profile_id, _profile_to_cbm_config(row))
-    return ProfileInfo(**row)
+    rows = await dbc.execute_fetchall("SELECT * FROM global_defaults WHERE id = 1")
+    return GlobalDefaults(**dict(rows[0]))
 
 
-@app.delete("/api/profiles/{profile_id}")
-async def delete_profile(profile_id: str):
+async def _get_defaults_dict() -> dict:
     dbc = db.get_db()
-    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
-    if not rows:
-        raise HTTPException(404, "Profile not found")
-    await dbc.execute("DELETE FROM profiles WHERE profile_id = ?", (profile_id,))
-    await dbc.execute("DELETE FROM consumer_profiles WHERE profile_id = ?", (profile_id,))
-    await dbc.commit()
-    storage.delete_profile_data(profile_id)
-    # Sync delete to all CBM nodes
-    await _sync_profile_to_nodes(profile_id, {}, action="delete")
-    return {"ok": True}
+    rows = await dbc.execute_fetchall("SELECT * FROM global_defaults WHERE id = 1")
+    row = dict(rows[0])
+    row.pop("id", None)
+    row.pop("updated_at", None)
+    row.pop("notes", None)
+    return {k: v for k, v in row.items() if v is not None}
 
 
 # ── Internal: Profile data storage (used by workers) ──────────────────────────
