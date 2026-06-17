@@ -222,15 +222,26 @@ async def list_mappings():
 def _build_vnc_html(title: str, ws_path: str) -> str:
     return f"""<!DOCTYPE html>
 <html><head><title>{title}</title>
-<style>body{{margin:0;overflow:hidden}}#screen{{width:100vw;height:100vh}}</style>
+<style>
+body {{ margin: 0; overflow: hidden; background: #000; }}
+#screen {{ width: 100vw; height: 100vh; }}
+#status {{ position: fixed; top: 8px; left: 8px; color: #888; font: 12px monospace; z-index: 10; }}
+</style>
 </head><body>
+<div id="status">Connecting...</div>
 <div id="screen"></div>
 <script type="module">
-import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/lib/rfb.js';
+import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.5.0/core/rfb.js';
 const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '{ws_path}';
-const rfb = new RFB(document.getElementById('screen'), wsUrl);
-rfb.scaleViewport = true;
-rfb.resizeSession = true;
+try {{
+  const rfb = new RFB(document.getElementById('screen'), wsUrl, {{ wsProtocols: ['binary'] }});
+  rfb.scaleViewport = true;
+  rfb.resizeSession = false;
+  rfb.addEventListener('connect', () => {{ document.getElementById('status').textContent = 'Connected'; setTimeout(() => document.getElementById('status').style.display = 'none', 2000); }});
+  rfb.addEventListener('disconnect', () => {{ document.getElementById('status').textContent = 'Disconnected'; document.getElementById('status').style.display = 'block'; }});
+}} catch(e) {{
+  document.getElementById('status').textContent = 'Error: ' + e.message;
+}}
 </script></body></html>"""
 
 

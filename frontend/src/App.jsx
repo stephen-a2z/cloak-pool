@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import VncViewer from './VncViewer'
 
 function StatCard({ label, value, max }) {
   return (
@@ -52,25 +53,18 @@ function NodeRow({ node }) {
   )
 }
 
-function VncViewer({ session, onClose }) {
-  const viewUrl = session._browser
-    ? `/view/browser/${session.node_id}/${session.profile_id}`
-    : `/view/${session.session_id}?token=${session.view_token || ''}`
-  const label = session._browser
-    ? `${session.name || session.profile_id?.slice(0, 8)} on ${session.node_id}`
-    : `${session.consumer_id?.slice(0, 16)}... on ${session.node_id}`
-  return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex flex-col">
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
-        <span className="text-sm">Viewing: {label}</span>
-        <div className="flex items-center gap-3">
-          <a href={viewUrl} target="_blank" className="text-gray-400 hover:text-white text-sm">↗ 新窗口</a>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-lg">&times;</button>
-        </div>
-      </div>
-      <iframe src={viewUrl} className="flex-1 w-full border-0" />
-    </div>
-  )
+function VncOverlay({ session, onClose }) {
+  let wsUrl, title, viewPageUrl
+  if (session._browser) {
+    wsUrl = `/api/view/browser/${session.node_id}/${session.profile_id}/vnc`
+    title = `${session.name || session.profile_id?.slice(0, 8)} on ${session.node_id}`
+    viewPageUrl = `/view/browser/${session.node_id}/${session.profile_id}`
+  } else {
+    wsUrl = `/api/view/${session.session_id}/vnc?token=${session.view_token || ''}`
+    title = `${session.consumer_id?.slice(0, 16)}... on ${session.node_id}`
+    viewPageUrl = `/view/${session.session_id}?token=${session.view_token || ''}`
+  }
+  return <VncViewer wsUrl={wsUrl} title={title} onClose={onClose} />
 }
 
 export default function App() {
@@ -181,7 +175,7 @@ export default function App() {
       </div>
 
       {/* VNC Viewer overlay */}
-      {viewing && <VncViewer session={viewing} onClose={() => setViewing(null)} />}
+      {viewing && <VncOverlay session={viewing} onClose={() => setViewing(null)} />}
     </div>
   )
 }
