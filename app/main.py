@@ -98,21 +98,26 @@ async def reset(req: ResetRequest):
 
 # ── Profile CRUD ───────────────────────────────────────────────────────────────
 
-async def _sync_profile_to_nodes(profile_id: str, profile_data: dict, action: str = "upsert"):
-    """Sync profile create/update/delete to all online CBM nodes (best effort)."""
-    nodes = registry.get_available_nodes()
-    async with httpx.AsyncClient(timeout=5) as client:
-        for node in nodes:
-            try:
+async def _sync_profile_to_nodes(profile_id: str, profile_data: dict, action: str = "update"):
+    """Sync profile update/delete to all online CBM nodes (best effort).
+    Create is NOT synced here — CBM profiles are created on acquire (which assigns the correct ID).
+    """
+    import asyncio as _aio
+    nodes = [n for n in registry.all_nodes() if n.online]
+    if not nodes:
+        return
+
+    async def _sync_one(node):
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
                 if action == "delete":
                     await client.delete(f"{node.url}/api/profiles/{profile_id}")
-                else:
-                    # Try update first, create if 404
-                    r = await client.put(f"{node.url}/api/profiles/{profile_id}", json=profile_data)
-                    if r.status_code == 404:
-                        await client.post(f"{node.url}/api/profiles", json=profile_data)
-            except Exception:
-                pass  # best effort
+                elif action == "update":
+                    await client.put(f"{node.url}/api/profiles/{profile_id}", json=profile_data)
+        except Exception:
+            pass
+
+    await _aio.gather(*[_sync_one(n) for n in nodes])
 
 
 def _profile_to_cbm_config(row: dict) -> dict:
