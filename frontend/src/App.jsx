@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, memo, lazy, Suspense } from 'react'
 import VncViewer from './VncViewer'
 import DefaultsEditor from './DefaultsEditor'
-import CreateProfileModal from './CreateProfileModal'
+
+const CreateProfileModal = lazy(() => import('./CreateProfileModal'))
 
 function StatCard({ label, value, max, accent = 'blue' }) {
   const colors = { blue: 'from-blue-500/10 to-transparent border-blue-500/20', green: 'from-emerald-500/10 to-transparent border-emerald-500/20', amber: 'from-amber-500/10 to-transparent border-amber-500/20' }
@@ -18,11 +19,11 @@ function StatCard({ label, value, max, accent = 'blue' }) {
 
 function Skeleton({ rows = 3 }) {
   return Array.from({ length: rows }).map((_, i) => (
-    <tr key={i} className="border-t border-gray-800"><td colSpan="6" className="px-3 py-3"><div className="h-4 bg-gray-800 rounded animate-pulse" style={{ width: `${60 + Math.random() * 30}%` }}></div></td></tr>
+    <tr key={i} className="border-t border-gray-800"><td colSpan="6" className="px-3 py-3"><div className="h-4 bg-gray-800 rounded animate-pulse" style={{ width: `${65 + i * 10}%` }}></div></td></tr>
   ))
 }
 
-function SessionRow({ session, onStop, onView, stopping }) {
+const SessionRow = memo(function SessionRow({ session, onStop, onView, stopping }) {
   const mins = Math.floor(session.ttl_remaining / 60)
   const secs = session.ttl_remaining % 60
   const urgent = session.ttl_remaining < 120
@@ -48,7 +49,7 @@ function SessionRow({ session, onStop, onView, stopping }) {
       </td>
     </tr>
   )
-}
+})
 
 function MetricPill({ label, value }) {
   const color = value > 80 ? 'text-red-400' : value > 60 ? 'text-amber-400' : 'text-gray-400'
@@ -157,7 +158,9 @@ function NodeCard({ node, onViewSession }) {
         </div>
       )}
       {creating && (
-        <CreateProfileModal nodeId={node.node_id} onClose={() => setCreating(false)} onCreated={() => { setCreating(false); fetchProfiles() }} />
+        <Suspense fallback={null}>
+          <CreateProfileModal nodeId={node.node_id} onClose={() => setCreating(false)} onCreated={() => { setCreating(false); fetchProfiles() }} />
+        </Suspense>
       )}
     </div>
   )

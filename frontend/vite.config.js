@@ -10,6 +10,11 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         vnc: resolve(__dirname, 'vnc.html'),
       },
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+        },
+      },
     },
   },
   server: { proxy: { '/api': 'http://localhost:9000', '/view': 'http://localhost:9000' } },
