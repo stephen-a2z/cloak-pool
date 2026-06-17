@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  cloakbrowser:
+    image: cloakhq/cloakbrowser-manager
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./cbm-data:/data
+
+  worker:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "9001:9001"
+    environment:
+      - ROLE=worker
+      - MASTER_URL=http://<MASTER_IP>:9000        # ← 改成 master 的 IP
+      - NODE_ID=<NODE_NAME>                       # ← 改成本节点名称，如 node-1
+      - NODE_ADVERTISE_URL=http://<THIS_IP>:8080  # ← 改成本机 IP:8080
+      - MAX_NODE_SESSIONS=5
+      - WORKER_PORT=9001
+    depends_on:
+      - cloakbrowser

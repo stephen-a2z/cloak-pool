@@ -26,22 +26,47 @@ Consumer 直连节点 CDP：`ws://node-x:8080/api/profiles/{id}/cdp`
 
 ## 快速开始
 
-### Docker Compose
+### 部署 Master
+
+在 master 机器上：
 
 ```bash
-docker compose up --build
+git clone git@github.com:stephen-a2z/cloak-pool.git
+cd cloak-pool
+docker compose -f docker-compose.master.yml up -d --build
 ```
 
-启动后：
-- Master 仪表盘：http://localhost:9000
-- Node 1 CloakBrowser-Manager：http://localhost:8080
-- Node 2 CloakBrowser-Manager：http://localhost:8082
+仪表盘：http://<MASTER_IP>:9000
+
+### 部署 Worker
+
+在每台 worker 机器上：
+
+```bash
+git clone git@github.com:stephen-a2z/cloak-pool.git
+cd cloak-pool
+```
+
+编辑 `docker-compose.worker.yml`，修改三个占位符：
+
+```yaml
+- MASTER_URL=http://<MASTER_IP>:9000        # master 内网 IP
+- NODE_ID=node-1                            # 本节点名称
+- NODE_ADVERTISE_URL=http://<THIS_IP>:8080  # 本机内网 IP
+```
+
+然后启动：
+
+```bash
+docker compose -f docker-compose.worker.yml up -d --build
+```
+
+Worker 启动后每 10 秒向 master 心跳注册，仪表盘上即可看到节点上线。
 
 ### 本地开发
 
 ```bash
 # Master
-cd browser-pool
 pip install -r requirements.txt
 ROLE=master DB_PATH=./data/pool.db PROFILE_STORAGE_DIR=./data/profiles \
   uvicorn app.main:app --port 9000

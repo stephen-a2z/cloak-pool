@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  master:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      - ROLE=master
+      - MASTER_URL=http://master:9000
+      - MAX_GLOBAL_SESSIONS=10
+      - PROFILE_STORAGE_DIR=/data/profiles
+      - DB_PATH=/data/browser-pool.db
+      - TTL_DEFAULT=1800
+      - TTL_MAX=7200
+    volumes:
+      - ./data:/data
