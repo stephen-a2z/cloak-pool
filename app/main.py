@@ -21,6 +21,24 @@ watcher = TTLWatcher(pool)
 async def lifespan(app: FastAPI):
     await db.init_db()
     task = asyncio.create_task(watcher.run())
+    import logging, socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        host_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        host_ip = "localhost"
+    logging.getLogger("browser-pool").info(
+        "\n"
+        "╔══════════════════════════════════════════════════╗\n"
+        "║  Browser Pool Master started                    ║\n"
+        "║                                                 ║\n"
+        f"║  Dashboard:  http://{host_ip}:9000            \n"
+        f"║  API:        http://{host_ip}:9000/api/health \n"
+        "║                                                 ║\n"
+        "╚══════════════════════════════════════════════════╝"
+    )
     yield
     task.cancel()
     await db.close_db()

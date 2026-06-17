@@ -1,5 +1,13 @@
 version: "3.8"
 
+# ┌─────────────────────────────────────────────────────┐
+# │  启动后查看日志获取访问地址:                             │
+# │  docker compose -f docker-compose.master.yml logs   │
+# │                                                     │
+# │  Dashboard:  http://<本机IP>:9000                    │
+# │  API:        http://<本机IP>:9000/api/health         │
+# └─────────────────────────────────────────────────────┘
+
 services:
   master:
     build: .
