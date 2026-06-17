@@ -1,0 +1,74 @@
+from __future__ import annotations
+import time
+from dataclasses import dataclass, field
+
+
+HEARTBEAT_TIMEOUT = 30  # seconds
+
+
+@dataclass
+class NodeState:
+    node_id: str
+    url: str
+    max_sessions: int
+    current_sessions: int = 0
+    last_heartbeat: float = 0.0
+    affinity: dict[str, float] = field(default_factory=dict)  # profile_id → last_used_ts
+
+    @property
+    def available_slots(self) -> int:
+        return max(0, self.max_sessions - self.current_sessions)
+
+    @property
+    def online(self) -> bool:
+        return (time.time() - self.last_heartbeat) < HEARTBEAT_TIMEOUT
+
+
+class NodeRegistry:
+    def __init__(self):
+        self._nodes: dict[str, NodeState] = {}
+
+    def register_or_heartbeat(self, node_id: str, url: str, max_sessions: int, current_sessions: int) -> None:
+        if node_id in self._nodes:
+            n = self._nodes[node_id]
+            n.url = url
+            n.max_sessions = max_sessions
+            n.current_sessions = current_sessions
+            n.last_heartbeat = time.time()
+        else:
+            self._nodes[node_id] = NodeState(
+                node_id=node_id, url=url, max_sessions=max_sessions,
+                current_sessions=current_sessions, last_heartbeat=time.time(),
+            )
+
+    def get_available_nodes(self) -> list[NodeState]:
+        return [n for n in self._nodes.values() if n.online and n.available_slots > 0]
+
+    def select_node(self, profile_id: str) -> NodeState | None:
+        available = self.get_available_nodes()
+        if not available:
+            return None
+        # Affinity: prefer node that last used this profile
+        for n in available:
+            if profile_id in n.affinity:
+                return n
+        # Fallback: most available slots
+        return max(available, key=lambda n: n.available_slots)
+
+    def update_affinity(self, node_id: str, profile_id: str) -> None:
+        n = self._nodes.get(node_id)
+        if n:
+            n.affinity[profile_id] = time.time()
+
+    def increment_sessions(self, node_id: str) -> None:
+        n = self._nodes.get(node_id)
+        if n:
+            n.current_sessions += 1
+
+    def decrement_sessions(self, node_id: str) -> None:
+        n = self._nodes.get(node_id)
+        if n and n.current_sessions > 0:
+            n.current_sessions -= 1
+
+    def all_nodes(self) -> list[NodeState]:
+        return list(self._nodes.values())
