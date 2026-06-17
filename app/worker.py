@@ -19,21 +19,31 @@ async def _heartbeat_loop():
     """Send heartbeat to master every 10s."""
     while True:
         try:
-            # Collect system metrics
-            import shutil
             cpu = memory = disk = 0.0
             try:
-                import os
-                # CPU: load average / cpu count (approximate %)
-                load = os.getloadavg()[0]
+                import os, shutil
+                # CPU: try /proc/loadavg (Linux/Docker), fallback os.getloadavg
                 cpu_count = os.cpu_count() or 1
+                try:
+                    with open('/proc/loadavg') as f:
+                        load = float(f.read().split()[0])
+                except FileNotFoundError:
+                    load = os.getloadavg()[0]
                 cpu = min(round(load / cpu_count * 100, 1), 100)
-                # Memory: read from /proc/meminfo (Linux)
-                with open('/proc/meminfo') as f:
-                    lines = f.readlines()
-                    total = int(lines[0].split()[1])
-                    avail = int(lines[2].split()[1])
-                    memory = round((1 - avail / total) * 100, 1)
+
+                # Memory: try /proc/meminfo (Linux), fallback to zero
+                try:
+                    mem = {}
+                    with open('/proc/meminfo') as f:
+                        for line in f:
+                            parts = line.split()
+                            if parts[0] in ('MemTotal:', 'MemAvailable:'):
+                                mem[parts[0]] = int(parts[1])
+                    if 'MemTotal:' in mem and 'MemAvailable:' in mem:
+                        memory = round((1 - mem['MemAvailable:'] / mem['MemTotal:']) * 100, 1)
+                except FileNotFoundError:
+                    pass
+
                 # Disk
                 usage = shutil.disk_usage('/')
                 disk = round(usage.used / usage.total * 100, 1)
