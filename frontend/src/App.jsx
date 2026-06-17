@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import VncViewer from './VncViewer'
+import ProfileManager from './ProfileManager'
 
 function StatCard({ label, value, max }) {
   return (
@@ -165,6 +166,9 @@ export default function App() {
           </tbody>
         </table>
       </div>
+
+      {/* Profiles */}
+      <ProfileManager />
 
       {/* Nodes */}
       <div className="mb-6">

@@ -84,3 +84,48 @@ class SyncRequest(BaseModel):
     profile_id: str
     master_url: str
     local_dir: str
+
+
+# ── Profile CRUD ──────────────────────────────────────────────────────────────
+
+class ProfileCreate(BaseModel):
+    name: str
+    fingerprint_seed: int | None = None
+    proxy: str | None = None
+    timezone: str | None = None
+    locale: str | None = None
+    platform: str = "windows"
+    user_agent: str | None = None
+    screen_width: int = 1920
+    screen_height: int = 1080
+    notes: str | None = None
+
+
+class ProfileUpdate(BaseModel):
+    name: str | None = None
+    fingerprint_seed: int | None = None
+    proxy: str | None = None
+    timezone: str | None = None
+    locale: str | None = None
+    platform: str | None = None
+    user_agent: str | None = None
+    screen_width: int | None = None
+    screen_height: int | None = None
+    notes: str | None = None
+
+
+class ProfileInfo(BaseModel):
+    profile_id: str
+    name: str
+    fingerprint_seed: int | None = None
+    proxy: str | None = None
+    timezone: str | None = None
+    locale: str | None = None
+    platform: str = "windows"
+    user_agent: str | None = None
+    screen_width: int = 1920
+    screen_height: int = 1080
+    notes: str | None = None
+    has_data: bool = False
+    created_at: str
+    updated_at: str

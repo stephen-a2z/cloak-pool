@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from app.config import cfg
 from app import database as db
-from app.models import AcquireRequest, AcquireResponse, ReleaseRequest, RenewRequest, RenewResponse, ResetRequest, NodeHeartbeat, NodeInfo, SessionInfo, StatsResponse
+from app.models import AcquireRequest, AcquireResponse, ReleaseRequest, RenewRequest, RenewResponse, ResetRequest, NodeHeartbeat, NodeInfo, SessionInfo, StatsResponse, ProfileCreate, ProfileUpdate, ProfileInfo
 from app.nodes import NodeRegistry
 from app.pool import PoolManager
 from app.ttl_watcher import TTLWatcher
@@ -71,7 +71,7 @@ async def list_nodes():
     ]
 
 
-# ── Internal: Profile data storage (used by workers) ──────────────────────────
+# ── Pool API ──────────────────────────────────────────────────────────────────
 
 @app.post("/api/pool/acquire", response_model=AcquireResponse)
 async def acquire(req: AcquireRequest):
@@ -93,6 +93,81 @@ async def renew(req: RenewRequest):
 @app.post("/api/pool/reset")
 async def reset(req: ResetRequest):
     await pool.reset(req.consumer_id)
+    return {"ok": True}
+
+
+# ── Profile CRUD ───────────────────────────────────────────────────────────────
+
+@app.get("/api/profiles", response_model=list[ProfileInfo])
+async def list_profiles():
+    dbc = db.get_db()
+    rows = await dbc.execute_fetchall("SELECT * FROM profiles ORDER BY created_at DESC")
+    results = []
+    for r in rows:
+        row = dict(r)
+        row["has_data"] = storage.profile_exists(row["profile_id"])
+        results.append(ProfileInfo(**row))
+    return results
+
+
+@app.post("/api/profiles", response_model=ProfileInfo, status_code=201)
+async def create_profile(req: ProfileCreate):
+    import uuid, random
+    profile_id = str(uuid.uuid4())
+    seed = req.fingerprint_seed if req.fingerprint_seed is not None else random.randint(0, 2**31 - 1)
+    dbc = db.get_db()
+    await dbc.execute(
+        "INSERT INTO profiles (profile_id, name, fingerprint_seed, proxy, timezone, locale, platform, user_agent, screen_width, screen_height, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (profile_id, req.name, seed, req.proxy, req.timezone, req.locale, req.platform, req.user_agent, req.screen_width, req.screen_height, req.notes),
+    )
+    await dbc.commit()
+    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
+    row = dict(rows[0])
+    row["has_data"] = False
+    return ProfileInfo(**row)
+
+
+@app.get("/api/profiles/{profile_id}", response_model=ProfileInfo)
+async def get_profile(profile_id: str):
+    dbc = db.get_db()
+    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
+    if not rows:
+        raise HTTPException(404, "Profile not found")
+    row = dict(rows[0])
+    row["has_data"] = storage.profile_exists(profile_id)
+    return ProfileInfo(**row)
+
+
+@app.put("/api/profiles/{profile_id}", response_model=ProfileInfo)
+async def update_profile(profile_id: str, req: ProfileUpdate):
+    dbc = db.get_db()
+    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
+    if not rows:
+        raise HTTPException(404, "Profile not found")
+    fields = req.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(400, "No fields to update")
+    fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [profile_id]
+    await dbc.execute(f"UPDATE profiles SET {set_clause} WHERE profile_id = ?", values)
+    await dbc.commit()
+    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
+    row = dict(rows[0])
+    row["has_data"] = storage.profile_exists(profile_id)
+    return ProfileInfo(**row)
+
+
+@app.delete("/api/profiles/{profile_id}")
+async def delete_profile(profile_id: str):
+    dbc = db.get_db()
+    rows = await dbc.execute_fetchall("SELECT * FROM profiles WHERE profile_id = ?", (profile_id,))
+    if not rows:
+        raise HTTPException(404, "Profile not found")
+    await dbc.execute("DELETE FROM profiles WHERE profile_id = ?", (profile_id,))
+    await dbc.execute("DELETE FROM consumer_profiles WHERE profile_id = ?", (profile_id,))
+    await dbc.commit()
+    storage.delete_profile_data(profile_id)
     return {"ok": True}
 
 

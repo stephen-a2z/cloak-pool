@@ -24,6 +24,22 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS profiles (
+    profile_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    fingerprint_seed INTEGER,
+    proxy TEXT,
+    timezone TEXT,
+    locale TEXT,
+    platform TEXT DEFAULT 'windows',
+    user_agent TEXT,
+    screen_width INTEGER DEFAULT 1920,
+    screen_height INTEGER DEFAULT 1080,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
