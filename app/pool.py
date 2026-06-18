@@ -13,11 +13,14 @@ from app.mapping import get_or_create_profile, derive_fingerprint_seed
 from app.models import AcquireRequest, AcquireResponse
 from app.nodes import NodeRegistry, NodeState
 from app import storage
+from app.engines import BrowserEngine, ProfileConfig
+from app.engines.cloakbrowser import CloakBrowserEngine
 
 
 class PoolManager:
-    def __init__(self, registry: NodeRegistry):
+    def __init__(self, registry: NodeRegistry, engine: BrowserEngine | None = None):
         self.registry = registry
+        self.engine: BrowserEngine = engine or CloakBrowserEngine()
 
     async def _active_session_count(self) -> int:
         db = get_db()
@@ -51,93 +54,60 @@ class PoolManager:
         if not node:
             raise HTTPException(503, "No available nodes")
 
-        # 5. Create or update profile on CloakBrowser-Manager
-        cbm_url = node.url
-        # Fetch global defaults to fill missing fields
-        from app.database import get_db as _get_db
-        _dbc = _get_db()
-        _def_rows = await _dbc.execute_fetchall("SELECT * FROM global_defaults WHERE id = 1")
-        _defaults = {k: v for k, v in dict(_def_rows[0]).items() if k not in ("id", "updated_at", "notes") and v is not None} if _def_rows else {}
-        profile_config = self._build_profile_config(req, profile_id, fingerprint_seed, _defaults)
+        # 5. Build profile config
+        defaults = await self._get_defaults()
+        profile_cfg = self._build_profile_config(req, fingerprint_seed, defaults)
 
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                if is_new:
-                    r = await client.post(f"{cbm_url}/api/profiles", json=profile_config)
-                    if r.status_code not in (200, 201):
-                        raise HTTPException(502, f"Failed to create profile on node: {r.text}")
-                    # Use the profile ID assigned by CloakBrowser-Manager
-                    cbm_profile_id = r.json().get("id")
-                    if cbm_profile_id and cbm_profile_id != profile_id:
-                        # Update local mapping to match CBM's ID
-                        profile_id = cbm_profile_id
-                        db_conn = get_db()
-                        await db_conn.execute(
-                            "UPDATE consumer_profiles SET profile_id = ? WHERE consumer_id = ?",
-                            (profile_id, req.consumer_id),
-                        )
-                        await db_conn.commit()
-                else:
-                    # Check if profile exists on this node (may have been scheduled to a different node)
-                    check = await client.get(f"{cbm_url}/api/profiles/{profile_id}")
-                    if check.status_code == 404:
-                        # Profile doesn't exist on this node, create it
-                        r = await client.post(f"{cbm_url}/api/profiles", json=profile_config)
-                        if r.status_code not in (200, 201):
-                            raise HTTPException(502, f"Failed to create profile on node: {r.text}")
-                        cbm_profile_id = r.json().get("id")
-                        if cbm_profile_id and cbm_profile_id != profile_id:
-                            profile_id = cbm_profile_id
-                            db_conn = get_db()
-                            await db_conn.execute(
-                                "UPDATE consumer_profiles SET profile_id = ? WHERE consumer_id = ?",
-                                (profile_id, req.consumer_id),
-                            )
-                            await db_conn.commit()
-                    else:
-                        update_fields = self._build_update_fields(req)
-                        if update_fields:
-                            r = await client.put(f"{cbm_url}/api/profiles/{profile_id}", json=update_fields)
-                            if r.status_code not in (200, 201):
-                                raise HTTPException(502, f"Failed to update profile on node: {r.text}")
+            node_url = node.url
 
-                # 6. Pull profile data from master to worker
-                if storage.profile_exists(profile_id):
-                    worker_url = self._worker_url(cbm_url)
-                    local_dir = f"{cfg.LOCAL_PROFILES_DIR}/{profile_id}"
+            # 6. Create or ensure profile exists on node
+            if is_new:
+                engine_id = await self.engine.create_profile(node_url, profile_cfg)
+                if engine_id and engine_id != profile_id:
+                    profile_id = engine_id
+                    await self._update_mapping(req.consumer_id, profile_id)
+            else:
+                exists = await self.engine.profile_exists(node_url, profile_id)
+                if not exists:
+                    engine_id = await self.engine.create_profile(node_url, profile_cfg)
+                    if engine_id and engine_id != profile_id:
+                        profile_id = engine_id
+                        await self._update_mapping(req.consumer_id, profile_id)
+                else:
+                    update_fields = self._build_update_fields(req)
+                    await self.engine.update_profile(node_url, profile_id, update_fields)
+
+            # 7. Pull profile data from master to worker
+            if storage.profile_exists(profile_id):
+                worker_url = self._worker_url(node_url)
+                local_dir = f"{cfg.LOCAL_PROFILES_DIR}/{profile_id}"
+                async with httpx.AsyncClient(timeout=30) as client:
                     r = await client.post(
                         f"{worker_url}/internal/sync/pull",
                         json={"profile_id": profile_id, "master_url": cfg.MASTER_URL, "local_dir": local_dir},
-                        timeout=30,
                     )
                     if r.status_code != 200:
                         raise HTTPException(502, f"Failed to pull profile data to worker: {r.text}")
 
-                # 7. Launch browser
-                r = await client.post(f"{cbm_url}/api/profiles/{profile_id}/launch")
-                if r.status_code not in (200, 201):
-                    raise HTTPException(502, f"Failed to launch browser: {r.text}")
+            # 8. Launch browser
+            await self.engine.launch(node_url, profile_id)
 
-                # 8. Wait for browser to be ready
-                for _ in range(30):
-                    r = await client.get(f"{cbm_url}/api/profiles/{profile_id}/status")
-                    if r.status_code == 200 and r.json().get("status") == "running":
-                        break
-                    await asyncio.sleep(0.5)
-                else:
-                    raise HTTPException(504, "Browser did not start in time")
+            # 9. Wait for browser to be ready
+            await self.engine.wait_ready(node_url, profile_id, timeout=15)
+
         except HTTPException:
             raise
         except Exception as exc:
             raise HTTPException(502, f"Node communication error: {exc}")
 
-        # 9. Generate session + view token
+        # 10. Generate session + view token
         session_id = str(uuid.uuid4())
         view_token = secrets.token_urlsafe(32)
         ttl = min(req.ttl or cfg.TTL_DEFAULT, cfg.TTL_MAX)
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
 
-        # 10. Record session
+        # 11. Record session
         db = get_db()
         await db.execute(
             "INSERT INTO sessions (session_id, consumer_id, profile_id, owner, node_id, node_url, view_token, status, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)",
@@ -145,12 +115,12 @@ class PoolManager:
         )
         await db.commit()
 
-        # 11. Update node state
+        # 12. Update node state
         self.registry.increment_sessions(node.node_id)
         self.registry.update_affinity(node.node_id, profile_id)
 
-        # 12. Build response
-        cdp_url = f"ws://{node.url.replace('http://', '')}/api/profiles/{profile_id}/cdp"
+        # 13. Build response
+        cdp_url = self.engine.get_cdp_url(node.url, profile_id)
         master_host = cfg.MASTER_URL.replace("http://", "")
         view_url = f"http://{master_host}/view/{session_id}?token={view_token}"
 
@@ -164,44 +134,6 @@ class PoolManager:
             expires_at=expires_at.isoformat(),
         )
 
-    def _build_profile_config(self, req: AcquireRequest, profile_id: str, seed: int, defaults: dict = None) -> dict:
-        d = defaults or {}
-        config = {
-            "name": req.consumer_id,
-            "fingerprint_seed": seed,
-            "launch_args": ["--disk-cache-size=1048576", "--media-cache-size=1048576"],
-        }
-        for field in ("proxy", "timezone", "locale", "platform", "user_agent", "screen_width", "screen_height"):
-            val = getattr(req, field, None)
-            if val is not None:
-                config[field] = val
-            elif field in d:
-                config[field] = d[field]
-        return config
-
-    def _build_update_fields(self, req: AcquireRequest) -> dict:
-        fields = {}
-        if req.proxy is not None:
-            fields["proxy"] = req.proxy
-        if req.timezone is not None:
-            fields["timezone"] = req.timezone
-        if req.locale is not None:
-            fields["locale"] = req.locale
-        if req.platform is not None:
-            fields["platform"] = req.platform
-        if req.user_agent is not None:
-            fields["user_agent"] = req.user_agent
-        if req.screen_width is not None:
-            fields["screen_width"] = req.screen_width
-        if req.screen_height is not None:
-            fields["screen_height"] = req.screen_height
-        return fields
-
-    def _worker_url(self, cbm_url: str) -> str:
-        from urllib.parse import urlparse, urlunparse
-        parsed = urlparse(cbm_url)
-        return urlunparse(parsed._replace(netloc=f"{parsed.hostname}:{cfg.WORKER_PORT}"))
-
     async def release(self, session_id: str, owner: str) -> None:
         db = get_db()
         rows = await db.execute_fetchall(
@@ -213,20 +145,19 @@ class PoolManager:
         if session["owner"] != owner:
             raise HTTPException(403, "Not the session owner")
 
-        cbm_url = session["node_url"]
-        worker_url = self._worker_url(cbm_url)
+        node_url = session["node_url"]
         profile_id = session["profile_id"]
 
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                # Stop browser
-                await client.post(f"{cbm_url}/api/profiles/{profile_id}/stop")
-                # Push profile data back to master
-                local_dir = f"{cfg.LOCAL_PROFILES_DIR}/{profile_id}"
+            # Stop browser via engine
+            await self.engine.stop(node_url, profile_id)
+            # Push profile data back to master
+            worker_url = self._worker_url(node_url)
+            local_dir = f"{cfg.LOCAL_PROFILES_DIR}/{profile_id}"
+            async with httpx.AsyncClient(timeout=60) as client:
                 await client.post(
                     f"{worker_url}/internal/sync/push",
                     json={"profile_id": profile_id, "master_url": cfg.MASTER_URL, "local_dir": local_dir},
-                    timeout=60,
                 )
         except HTTPException:
             raise
@@ -271,7 +202,6 @@ class PoolManager:
             try:
                 await self.release(session["session_id"], session["owner"])
             except Exception:
-                # Force mark released
                 await db.execute("UPDATE sessions SET status = 'released' WHERE session_id = ?", (session["session_id"],))
                 await db.commit()
 
@@ -279,10 +209,58 @@ class PoolManager:
         profile_id = await reset_consumer(consumer_id)
         if profile_id:
             storage.delete_profile_data(profile_id)
-            # Try to delete from CBM nodes (best effort)
+            # Delete from all nodes via engine (best effort)
             for node in self.registry.all_nodes():
                 try:
-                    async with httpx.AsyncClient(timeout=5) as client:
-                        await client.delete(f"{node.url}/api/profiles/{profile_id}")
+                    await self.engine.delete_profile(node.url, profile_id)
                 except Exception:
                     pass
+
+    # ── Private helpers ────────────────────────────────────────────────────────
+
+    async def _get_defaults(self) -> dict:
+        dbc = get_db()
+        rows = await dbc.execute_fetchall("SELECT * FROM global_defaults WHERE id = 1")
+        if not rows:
+            return {}
+        return {k: v for k, v in dict(rows[0]).items() if k not in ("id", "updated_at", "notes") and v is not None}
+
+    async def _update_mapping(self, consumer_id: str, profile_id: str) -> None:
+        db = get_db()
+        await db.execute(
+            "UPDATE consumer_profiles SET profile_id = ? WHERE consumer_id = ?",
+            (profile_id, consumer_id),
+        )
+        await db.commit()
+
+    def _build_profile_config(self, req: AcquireRequest, seed: int, defaults: dict = None) -> ProfileConfig:
+        d = defaults or {}
+        def pick(field):
+            val = getattr(req, field, None)
+            return val if val is not None else d.get(field)
+
+        return ProfileConfig(
+            name=req.consumer_id,
+            fingerprint_seed=seed,
+            proxy=pick("proxy"),
+            timezone=pick("timezone"),
+            locale=pick("locale"),
+            platform=pick("platform") or "windows",
+            user_agent=pick("user_agent"),
+            screen_width=pick("screen_width") or 1920,
+            screen_height=pick("screen_height") or 1080,
+            launch_args=["--disk-cache-size=1048576", "--media-cache-size=1048576"],
+        )
+
+    def _build_update_fields(self, req: AcquireRequest) -> dict:
+        fields = {}
+        for field in ("proxy", "timezone", "locale", "platform", "user_agent", "screen_width", "screen_height"):
+            val = getattr(req, field, None)
+            if val is not None:
+                fields[field] = val
+        return fields
+
+    def _worker_url(self, node_url: str) -> str:
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(node_url)
+        return urlunparse(parsed._replace(netloc=f"{parsed.hostname}:{cfg.WORKER_PORT}"))
