@@ -42,7 +42,9 @@ async def lifespan(app: FastAPI):
     )
     yield
     task.cancel()
-    await pool.engine.close()
+    for eng in pool.engines.values():
+        if hasattr(eng, 'close'):
+            await eng.close()
     await db.close_db()
 
 
@@ -56,7 +58,7 @@ async def health():
 
 @app.post("/api/nodes/heartbeat")
 async def node_heartbeat(body: NodeHeartbeat):
-    registry.register_or_heartbeat(body.node_id, body.url, body.max_sessions, body.current_sessions, body.cpu_percent, body.memory_percent, body.disk_percent)
+    registry.register_or_heartbeat(body.node_id, body.url, body.max_sessions, body.current_sessions, body.cpu_percent, body.memory_percent, body.disk_percent, body.engine, body.token)
     return {"ok": True}
 
 

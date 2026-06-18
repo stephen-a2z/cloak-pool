@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 
 HEARTBEAT_TIMEOUT = 30  # seconds
-AFFINITY_MAX = 500     # max profile entries per node
+AFFINITY_MAX = 1000     # max profile entries per node
 OFFLINE_PURGE_AFTER = 86400  # seconds (24h) before removing offline node
 
 
@@ -13,12 +13,14 @@ class NodeState:
     node_id: str
     url: str
     max_sessions: int
+    engine: str = "cloakbrowser"  # "cloakbrowser" or "browserless"
     current_sessions: int = 0
     last_heartbeat: float = 0.0
-    affinity: dict[str, float] = field(default_factory=dict)  # profile_id → last_used_ts
+    affinity: dict[str, float] = field(default_factory=dict)
     cpu_percent: float = 0
     memory_percent: float = 0
     disk_percent: float = 0
+    token: str = ""  # browserless token
 
     @property
     def available_slots(self) -> int:
@@ -33,7 +35,7 @@ class NodeRegistry:
     def __init__(self):
         self._nodes: dict[str, NodeState] = {}
 
-    def register_or_heartbeat(self, node_id: str, url: str, max_sessions: int, current_sessions: int, cpu_percent: float = 0, memory_percent: float = 0, disk_percent: float = 0) -> None:
+    def register_or_heartbeat(self, node_id: str, url: str, max_sessions: int, current_sessions: int, cpu_percent: float = 0, memory_percent: float = 0, disk_percent: float = 0, engine: str = "cloakbrowser", token: str = "") -> None:
         if node_id in self._nodes:
             n = self._nodes[node_id]
             n.url = url
@@ -43,18 +45,21 @@ class NodeRegistry:
             n.cpu_percent = cpu_percent
             n.memory_percent = memory_percent
             n.disk_percent = disk_percent
+            n.engine = engine
+            n.token = token
         else:
             self._nodes[node_id] = NodeState(
                 node_id=node_id, url=url, max_sessions=max_sessions,
-                current_sessions=current_sessions, last_heartbeat=time.time(),
+                engine=engine, current_sessions=current_sessions, last_heartbeat=time.time(),
                 cpu_percent=cpu_percent, memory_percent=memory_percent, disk_percent=disk_percent,
+                token=token,
             )
 
     def get_available_nodes(self) -> list[NodeState]:
         return [n for n in self._nodes.values() if n.online and n.available_slots > 0]
 
-    def select_node(self, profile_id: str) -> NodeState | None:
-        available = self.get_available_nodes()
+    def select_node(self, profile_id: str, engine: str = "cloakbrowser") -> NodeState | None:
+        available = [n for n in self.get_available_nodes() if n.engine == engine]
         if not available:
             return None
         # Affinity: prefer node that last used this profile

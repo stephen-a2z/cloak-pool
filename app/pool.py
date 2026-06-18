@@ -16,6 +16,7 @@ from app.nodes import NodeRegistry, NodeState
 from app import storage
 from app.engines import BrowserEngine, ProfileConfig
 from app.engines.cloakbrowser import CloakBrowserEngine
+from app.engines.browserless import BrowserlessEngine
 
 logger = logging.getLogger("browser-pool.pool")
 
@@ -23,7 +24,10 @@ logger = logging.getLogger("browser-pool.pool")
 class PoolManager:
     def __init__(self, registry: NodeRegistry, engine: BrowserEngine | None = None):
         self.registry = registry
-        self.engine: BrowserEngine = engine or CloakBrowserEngine()
+        self.engines: dict[str, BrowserEngine] = {
+            "cloakbrowser": engine or CloakBrowserEngine(),
+            "browserless": BrowserlessEngine(),
+        }
 
     async def _active_session_count(self) -> int:
         db = get_db()
@@ -38,6 +42,11 @@ class PoolManager:
         return dict(rows[0]) if rows else None
 
     async def acquire(self, req: AcquireRequest) -> AcquireResponse:
+        engine_type = req.engine
+        engine = self.engines.get(engine_type)
+        if not engine:
+            raise HTTPException(400, f"Unknown engine: {engine_type}")
+
         # 1. Get or create profile mapping
         profile_id, is_new = await get_or_create_profile(req.consumer_id)
         fingerprint_seed = derive_fingerprint_seed(req.consumer_id)
@@ -52,10 +61,10 @@ class PoolManager:
         if count >= cfg.MAX_GLOBAL_SESSIONS:
             raise HTTPException(429, "Global session limit reached")
 
-        # 4. Select node
-        node = self.registry.select_node(profile_id)
+        # 4. Select node (filtered by engine type)
+        node = self.registry.select_node(profile_id, engine=engine_type)
         if not node:
-            raise HTTPException(503, "No available nodes")
+            raise HTTPException(503, f"No available {engine_type} nodes")
 
         # 5. Build profile config
         defaults = await self._get_defaults()
@@ -63,29 +72,36 @@ class PoolManager:
 
         try:
             node_url = node.url
+            node_token = node.token
             profile_created_on_node = False
 
             # 6. Create or ensure profile exists on node
-            if is_new:
-                engine_id = await self.engine.create_profile(node_url, profile_cfg)
+            if engine_type == "browserless":
+                # Browserless: stateless, just verify reachable and get virtual ID
+                engine_id = await engine.create_profile(node_url, profile_cfg, token=node_token)
+                if engine_id and engine_id != profile_id:
+                    profile_id = engine_id
+                    await self._update_mapping(req.consumer_id, profile_id)
+            elif is_new:
+                engine_id = await engine.create_profile(node_url, profile_cfg)
                 profile_created_on_node = True
                 if engine_id and engine_id != profile_id:
                     profile_id = engine_id
                     await self._update_mapping(req.consumer_id, profile_id)
             else:
-                exists = await self.engine.profile_exists(node_url, profile_id)
+                exists = await engine.profile_exists(node_url, profile_id)
                 if not exists:
-                    engine_id = await self.engine.create_profile(node_url, profile_cfg)
+                    engine_id = await engine.create_profile(node_url, profile_cfg)
                     profile_created_on_node = True
                     if engine_id and engine_id != profile_id:
                         profile_id = engine_id
                         await self._update_mapping(req.consumer_id, profile_id)
                 else:
                     update_fields = self._build_update_fields(req)
-                    await self.engine.update_profile(node_url, profile_id, update_fields)
+                    await engine.update_profile(node_url, profile_id, update_fields)
 
-            # 7. Pull profile data from master to worker
-            if storage.profile_exists(profile_id):
+            # 7. Pull profile data from master to worker (CBM only)
+            if engine_type == "cloakbrowser" and storage.profile_exists(profile_id):
                 worker_url = self._worker_url(node_url)
                 local_dir = f"{cfg.LOCAL_PROFILES_DIR}/{profile_id}"
                 async with httpx.AsyncClient(timeout=30) as client:
@@ -96,17 +112,17 @@ class PoolManager:
                     if r.status_code != 200:
                         raise HTTPException(502, f"Failed to pull profile data to worker: {r.text}")
 
-            # 8. Launch browser
-            await self.engine.launch(node_url, profile_id)
+            # 8. Launch browser (no-op for browserless)
+            await engine.launch(node_url, profile_id)
 
-            # 9. Wait for browser to be ready
-            await self.engine.wait_ready(node_url, profile_id, timeout=15)
+            # 9. Wait for browser to be ready (no-op for browserless)
+            await engine.wait_ready(node_url, profile_id, timeout=15)
 
         except Exception as exc:
             # Rollback: stop browser if launch partially succeeded
             if profile_created_on_node:
                 try:
-                    await self.engine.stop(node_url, profile_id)
+                    await engine.stop(node_url, profile_id)
                 except Exception:
                     pass
             logger.warning("acquire failed: consumer=%s node=%s error=%s",
@@ -140,7 +156,10 @@ class PoolManager:
                     req.consumer_id[:16], profile_id[:8], node.node_id, session_id[:8])
 
         # 13. Build response
-        cdp_url = self.engine.get_cdp_url(node.url, profile_id)
+        if engine_type == "browserless":
+            cdp_url = engine.get_cdp_url(node.url, profile_id, token=node.token)
+        else:
+            cdp_url = engine.get_cdp_url(node.url, profile_id)
         master_host = cfg.MASTER_URL.replace("http://", "")
         view_url = f"http://{master_host}/view/{session_id}?token={view_token}"
 
@@ -167,18 +186,22 @@ class PoolManager:
 
         node_url = session["node_url"]
         profile_id = session["profile_id"]
+        # Determine engine from the node
+        node_state = next((n for n in self.registry.all_nodes() if n.node_id == session["node_id"]), None)
+        engine_type = node_state.engine if node_state else "cloakbrowser"
+        engine = self.engines.get(engine_type, self.engines["cloakbrowser"])
 
         try:
-            # Stop browser via engine
-            await self.engine.stop(node_url, profile_id)
-            # Push profile data back to master
-            worker_url = self._worker_url(node_url)
-            local_dir = f"{cfg.LOCAL_PROFILES_DIR}/{profile_id}"
-            async with httpx.AsyncClient(timeout=60) as client:
-                await client.post(
-                    f"{worker_url}/internal/sync/push",
-                    json={"profile_id": profile_id, "master_url": cfg.MASTER_URL, "local_dir": local_dir},
-                )
+            await engine.stop(node_url, profile_id)
+            # Push profile data back (CBM only)
+            if engine_type == "cloakbrowser":
+                worker_url = self._worker_url(node_url)
+                local_dir = f"{cfg.LOCAL_PROFILES_DIR}/{profile_id}"
+                async with httpx.AsyncClient(timeout=60) as client:
+                    await client.post(
+                        f"{worker_url}/internal/sync/push",
+                        json={"profile_id": profile_id, "master_url": cfg.MASTER_URL, "local_dir": local_dir},
+                    )
         except HTTPException:
             raise
         except Exception as exc:
@@ -234,7 +257,8 @@ class PoolManager:
             # Delete from all nodes via engine (best effort)
             for node in self.registry.all_nodes():
                 try:
-                    await self.engine.delete_profile(node.url, profile_id)
+                    eng = self.engines.get(node.engine, self.engines["cloakbrowser"])
+                    await eng.delete_profile(node.url, profile_id)
                 except Exception as exc:
                     logger.warning("reset: delete_profile failed on %s: %s", node.node_id, exc)
 

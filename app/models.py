@@ -6,6 +6,7 @@ class AcquireRequest(BaseModel):
     consumer_id: str
     owner: str
     ttl: int | None = None
+    engine: str = "cloakbrowser"  # "cloakbrowser" or "browserless"
     proxy: str | None = None
     timezone: str | None = None
     locale: str | None = None
@@ -52,6 +53,8 @@ class NodeHeartbeat(BaseModel):
     cpu_percent: float = 0
     memory_percent: float = 0
     disk_percent: float = 0
+    engine: str = "cloakbrowser"
+    token: str = ""
 
 
 class NodeInfo(BaseModel):
