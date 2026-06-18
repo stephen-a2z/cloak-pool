@@ -476,10 +476,40 @@ async def cdp_proxy_browser(websocket: WebSocket, node_id: str, profile_id: str)
 
 
 async def _proxy_cdp(websocket: WebSocket, node_url: str, profile_id: str):
-    """Bi-directional CDP WebSocket proxy for screencast + input."""
+    """Bi-directional CDP WebSocket proxy for screencast + input (page-level)."""
     await websocket.accept()
     import websockets
-    target_ws = f"ws://{node_url.replace('http://', '')}/api/profiles/{profile_id}/cdp"
+
+    # Get the first page target's devtools WS path
+    node_host = node_url.replace("http://", "").replace("https://", "")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{node_url}/api/profiles/{profile_id}/cdp/json/list")
+            if r.status_code != 200:
+                await websocket.send_text('{"error":"Failed to get CDP targets"}')
+                await websocket.close()
+                return
+            targets = r.json()
+            page_targets = [t for t in targets if t.get("type") == "page"]
+            if not page_targets:
+                await websocket.send_text('{"error":"No page targets found"}')
+                await websocket.close()
+                return
+            # Extract the devtools path from the rewritten webSocketDebuggerUrl
+            ws_url = page_targets[0].get("webSocketDebuggerUrl", "")
+            # URL is rewritten by CBM to be like ws://host/api/profiles/{id}/cdp/devtools/page/xxx
+            # We need to connect through the CBM proxy
+            if ws_url.startswith("ws://"):
+                target_ws = ws_url
+            else:
+                # Fallback: build from target id
+                target_id = page_targets[0].get("id", "")
+                target_ws = f"ws://{node_host}/api/profiles/{profile_id}/cdp/devtools/page/{target_id}"
+    except Exception as exc:
+        await websocket.send_text(f'{{"error":"CDP discovery failed: {exc}"}}')
+        await websocket.close()
+        return
+
     try:
         async with websockets.connect(target_ws, max_size=None, ping_interval=30, close_timeout=5) as cdp_ws:
             async def client_to_cdp():
