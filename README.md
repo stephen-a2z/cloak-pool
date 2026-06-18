@@ -63,6 +63,33 @@ docker compose -f docker-compose.worker.yml up -d --build
 
 Worker 启动后每 10 秒向 master 心跳注册，仪表盘上即可看到节点上线。
 
+### 部署 Browserless 节点
+
+Browserless 节点提供轻量无状态浏览器（无指纹、无持久化），适合简单爬取/截图任务。
+
+```bash
+git clone git@github.com:stephen-a2z/cloak-pool.git
+cd cloak-pool
+```
+
+编辑环境变量：
+
+```bash
+export MASTER_IP=192.168.1.100    # master 内网 IP
+export HOST_IP=192.168.1.5        # 本机内网 IP
+export NODE_ID=bl-node-1          # 节点名称
+export BL_TOKEN=your-secret-token # browserless 认证 token
+export MAX_SESSIONS=5             # 最大并发数
+```
+
+启动：
+
+```bash
+docker compose -f docker-compose.browserless.yml up -d --build
+```
+
+节点会自动以 `engine=browserless` 注册到 master。Consumer 调用时指定 `"engine": "browserless"` 即可路由到此节点。
+
 ### 本地开发
 
 ```bash
@@ -174,6 +201,35 @@ http://master:9000/view/xxx?token=zzz
 
 Token 随 session 释放自动失效。
 
+### 使用 Browserless 节点（轻量爬取）
+
+```python
+# Acquire - 指定 engine=browserless
+r = httpx.post("http://master:9000/api/pool/acquire", json={
+    "consumer_id": "scraper-1",
+    "owner": "worker-1",
+    "engine": "browserless",
+})
+data = r.json()
+# cdp_url: "ws://bl-node-1:3000?token=xxx"
+
+# 直接连接 - 每次是全新浏览器
+async with async_playwright() as pw:
+    browser = await pw.chromium.connect_over_cdp(
+        data["cdp_url"].replace("ws://", "http://")
+    )
+    page = await browser.new_page()
+    await page.goto("https://example.com")
+    content = await page.content()
+    await browser.close()
+
+# Release
+httpx.post("http://master:9000/api/pool/release", json={
+    "session_id": data["session_id"],
+    "owner": "worker-1",
+})
+```
+
 ## 核心特性
 
 - **Consumer 绑定 Profile** — 同一 consumer_id 永远使用同一份浏览器数据（cookies、localStorage），保持登录态
@@ -194,7 +250,9 @@ Token 随 session 释放自动失效。
 | `ROLE` | master | `master` 或 `worker` |
 | `MASTER_URL` | http://localhost:9000 | Master 地址 |
 | `NODE_ID` | node-1 | 节点标识 |
-| `NODE_ADVERTISE_URL` | http://localhost:8080 | 节点 CloakBrowser-Manager 地址 |
+| `NODE_ENGINE` | cloakbrowser | 引擎类型：`cloakbrowser` / `browserless` |
+| `NODE_TOKEN` | (空) | Browserless 认证 token |
+| `NODE_ADVERTISE_URL` | http://localhost:8080 | 节点 CloakBrowser-Manager 或 Browserless 地址 |
 | `MAX_GLOBAL_SESSIONS` | 10 | 全局最大并发 |
 | `MAX_NODE_SESSIONS` | 5 | 每节点最大并发 |
 | `PROFILE_STORAGE_DIR` | /data/profiles | Profile 数据存储目录 |

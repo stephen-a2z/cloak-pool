@@ -7,6 +7,8 @@ class Config:
     MASTER_URL: str = os.environ.get("MASTER_URL", "http://localhost:9000")
     NODE_ADVERTISE_URL: str = os.environ.get("NODE_ADVERTISE_URL", "http://localhost:8080")
     NODE_ID: str = os.environ.get("NODE_ID", "node-1")
+    NODE_ENGINE: str = os.environ.get("NODE_ENGINE", "cloakbrowser")  # cloakbrowser | browserless
+    NODE_TOKEN: str = os.environ.get("NODE_TOKEN", "")  # browserless token
     WORKER_PORT: int = int(os.environ.get("WORKER_PORT", "9001"))
     MAX_GLOBAL_SESSIONS: int = int(os.environ.get("MAX_GLOBAL_SESSIONS", "10"))
     MAX_NODE_SESSIONS: int = int(os.environ.get("MAX_NODE_SESSIONS", "5"))

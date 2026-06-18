@@ -66,6 +66,8 @@ async def _heartbeat_loop():
                         "cpu_percent": cpu,
                         "memory_percent": memory,
                         "disk_percent": disk,
+                        "engine": cfg.NODE_ENGINE,
+                        "token": cfg.NODE_TOKEN,
                     },
                 )
             # Success - reset interval
