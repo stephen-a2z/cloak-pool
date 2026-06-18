@@ -449,6 +449,75 @@ async def _proxy_vnc(websocket: WebSocket, node_url: str, profile_id: str):
             pass
 
 
+# ── CDP Screencast Proxy ──────────────────────────────────────────────────────
+
+@app.websocket("/api/view/{session_id}/cdp")
+async def cdp_proxy_session(websocket: WebSocket, session_id: str, token: str = Query(...)):
+    """CDP proxy for session view (token-authenticated)."""
+    dbc = db.get_db()
+    rows = await dbc.execute_fetchall(
+        "SELECT view_token, node_url, profile_id FROM sessions WHERE session_id = ? AND status = 'active'",
+        (session_id,),
+    )
+    if not rows or rows[0][0] != token:
+        await websocket.close(code=4403, reason="Forbidden")
+        return
+    await _proxy_cdp(websocket, rows[0][1], rows[0][2])
+
+
+@app.websocket("/api/view/browser/{node_id}/{profile_id}/cdp")
+async def cdp_proxy_browser(websocket: WebSocket, node_id: str, profile_id: str):
+    """CDP proxy for direct browser view (admin, no token)."""
+    node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
+    if not node:
+        await websocket.close(code=4004, reason="Node not found")
+        return
+    await _proxy_cdp(websocket, node.url, profile_id)
+
+
+async def _proxy_cdp(websocket: WebSocket, node_url: str, profile_id: str):
+    """Bi-directional CDP WebSocket proxy for screencast + input."""
+    await websocket.accept()
+    import websockets
+    target_ws = f"ws://{node_url.replace('http://', '')}/api/profiles/{profile_id}/cdp"
+    try:
+        async with websockets.connect(target_ws, max_size=None, ping_interval=30, close_timeout=5) as cdp_ws:
+            async def client_to_cdp():
+                try:
+                    while True:
+                        msg = await websocket.receive()
+                        if msg.get("type") == "websocket.disconnect":
+                            break
+                        if "text" in msg and msg["text"]:
+                            await cdp_ws.send(msg["text"])
+                except Exception:
+                    pass
+
+            async def cdp_to_client():
+                try:
+                    async for msg in cdp_ws:
+                        if isinstance(msg, str):
+                            await websocket.send_text(msg)
+                        else:
+                            await websocket.send_bytes(msg)
+                except Exception:
+                    pass
+
+            c2c = asyncio.create_task(client_to_cdp())
+            c2f = asyncio.create_task(cdp_to_client())
+            done, pending = await asyncio.wait([c2c, c2f], return_when=asyncio.FIRST_COMPLETED)
+            for t in pending:
+                t.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+    except Exception:
+        pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
 # ── Log Streaming (SSE) ───────────────────────────────────────────────────────
 import logging
 import collections

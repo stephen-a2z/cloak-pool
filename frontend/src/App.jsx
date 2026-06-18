@@ -4,6 +4,7 @@ import DefaultsEditor from './DefaultsEditor'
 
 const CreateProfileModal = lazy(() => import('./CreateProfileModal'))
 const LogViewer = lazy(() => import('./LogViewer'))
+const CdpViewer = lazy(() => import('./CdpViewer'))
 
 function StatCard({ label, value, max, accent = 'blue' }) {
   const colors = { blue: 'from-blue-500/10 to-transparent border-blue-500/20', green: 'from-emerald-500/10 to-transparent border-emerald-500/20', amber: 'from-amber-500/10 to-transparent border-amber-500/20' }
@@ -167,16 +168,23 @@ function NodeCard({ node, onViewSession }) {
   )
 }
 
-function VncOverlay({ session, onClose }) {
-  let wsUrl, title
+function ViewerOverlay({ session, onClose }) {
+  const [mode, setMode] = useState('vnc')
+  let vncUrl, cdpUrl, title
   if (session._browser) {
-    wsUrl = `/api/view/browser/${session.node_id}/${session.profile_id}/vnc`
+    vncUrl = `/api/view/browser/${session.node_id}/${session.profile_id}/vnc`
+    cdpUrl = `/api/view/browser/${session.node_id}/${session.profile_id}/cdp`
     title = `${session.name || session.profile_id?.slice(0, 8)} on ${session.node_id}`
   } else {
-    wsUrl = `/api/view/${session.session_id}/vnc?token=${session.view_token || ''}`
+    vncUrl = `/api/view/${session.session_id}/vnc?token=${session.view_token || ''}`
+    cdpUrl = `/api/view/${session.session_id}/cdp?token=${session.view_token || ''}`
     title = `${session.consumer_id?.slice(0, 16)}... on ${session.node_id}`
   }
-  return <VncViewer wsUrl={wsUrl} title={title} onClose={onClose} />
+
+  if (mode === 'cdp') {
+    return <CdpViewer wsUrl={cdpUrl} title={title} onClose={onClose} onSwitchMode={() => setMode('vnc')} />
+  }
+  return <VncViewer wsUrl={vncUrl} title={title} onClose={onClose} onSwitchMode={() => setMode('cdp')} />
 }
 
 function SectionHeader({ title, count, children }) {
@@ -341,7 +349,7 @@ export default function App() {
       </main>
 
       {/* VNC Viewer overlay */}
-      {viewing && <VncOverlay session={viewing} onClose={() => setViewing(null)} />}
+      {viewing && <Suspense fallback={null}><ViewerOverlay session={viewing} onClose={() => setViewing(null)} /></Suspense>}
     </div>
   )
 }

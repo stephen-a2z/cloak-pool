@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-export default function VncViewer({ wsUrl, title, onClose }) {
+export default function VncViewer({ wsUrl, title, onClose, onSwitchMode }) {
   const containerRef = useRef(null)
   const rfbRef = useRef(null)
   const [connected, setConnected] = useState(false)
@@ -97,9 +97,11 @@ export default function VncViewer({ wsUrl, title, onClose }) {
         <div className="flex items-center gap-3">
           <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-yellow-400 animate-pulse'}`}></span>
           <span className="text-sm">{title}</span>
+          <span className="text-[10px] font-mono text-gray-500 bg-gray-900 px-1.5 py-0.5 rounded">VNC</span>
           <span className="text-xs text-gray-500">{connected ? 'Connected' : 'Connecting...'}</span>
         </div>
         <div className="flex items-center gap-2">
+          {onSwitchMode && <button onClick={onSwitchMode} className="px-2 py-1 rounded text-[11px] font-medium text-blue-400 hover:bg-blue-400/10 transition-colors">Switch to CDP</button>}
           <button onClick={toggleFullscreen} className="p-1.5 text-gray-400 hover:text-white rounded hover:bg-gray-700" title="Fullscreen">
             {fullscreen ? '⊡' : '⊞'}
           </button>
