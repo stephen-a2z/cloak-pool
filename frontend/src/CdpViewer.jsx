@@ -127,6 +127,10 @@ export default function CdpViewer({ wsUrl, title, onClose, onSwitchMode }) {
     return () => document.removeEventListener('fullscreenchange', h)
   }, [])
 
+  useEffect(() => {
+    if (connected && canvasRef.current) canvasRef.current.focus()
+  }, [connected])
+
   if (error) {
     return (
       <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
@@ -158,12 +162,12 @@ export default function CdpViewer({ wsUrl, title, onClose, onSwitchMode }) {
         </div>
       </div>
       {/* Canvas */}
-      <div className="flex-1 flex items-center justify-center overflow-hidden bg-black">
+      <div className="flex-1 flex items-center justify-center overflow-hidden bg-black" onClick={() => canvasRef.current?.focus()}>
         <canvas
           ref={canvasRef}
-          className="max-w-full max-h-full cursor-default"
+          className="max-w-full max-h-full cursor-default outline-none"
           tabIndex={0}
-          onMouseDown={e => handleMouse(e, 'mousePressed')}
+          onMouseDown={e => { canvasRef.current?.focus(); handleMouse(e, 'mousePressed') }}
           onMouseUp={e => handleMouse(e, 'mouseReleased')}
           onMouseMove={e => handleMouse(e, 'mouseMoved')}
           onWheel={handleWheel}

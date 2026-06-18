@@ -56,7 +56,7 @@ function startCdp() {
   const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + cdpPath
 
   const canvas = document.createElement('canvas')
-  canvas.style.cssText = 'max-width:100%;max-height:100%;cursor:default'
+  canvas.style.cssText = 'max-width:100%;max-height:100%;cursor:default;outline:none'
   canvas.tabIndex = 0
   viewer.appendChild(canvas)
 
@@ -72,6 +72,7 @@ function startCdp() {
   ws.onopen = () => {
     statusDot.classList.add('on')
     info.textContent = 'Connected'
+    canvas.focus()
     send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth: 1920, maxHeight: 1080, everyNthFrame: 1 })
   }
 
@@ -102,7 +103,7 @@ function startCdp() {
     return { x: Math.round((e.clientX - rect.left) * (deviceSize.width / rect.width)), y: Math.round((e.clientY - rect.top) * (deviceSize.height / rect.height)) }
   }
 
-  canvas.onmousedown = (e) => { e.preventDefault(); const c = getCoords(e); send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', clickCount: 1 }) }
+  canvas.onmousedown = (e) => { e.preventDefault(); canvas.focus(); const c = getCoords(e); send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', clickCount: 1 }) }
   canvas.onmouseup = (e) => { e.preventDefault(); const c = getCoords(e); send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: c.x, y: c.y, button: 'left' }) }
   canvas.onmousemove = (e) => { const c = getCoords(e); send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y }) }
   canvas.onwheel = (e) => { e.preventDefault(); const c = getCoords(e); send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: c.x, y: c.y, deltaX: e.deltaX, deltaY: e.deltaY }) }
