@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 
 HEARTBEAT_TIMEOUT = 30  # seconds
+AFFINITY_MAX = 500     # max profile entries per node
+OFFLINE_PURGE_AFTER = 86400  # seconds (24h) before removing offline node
 
 
 @dataclass
@@ -66,6 +68,11 @@ class NodeRegistry:
         n = self._nodes.get(node_id)
         if n:
             n.affinity[profile_id] = time.time()
+            # LRU eviction
+            if len(n.affinity) > AFFINITY_MAX:
+                oldest = sorted(n.affinity, key=n.affinity.get)[:len(n.affinity) - AFFINITY_MAX]
+                for k in oldest:
+                    del n.affinity[k]
 
     def increment_sessions(self, node_id: str) -> None:
         n = self._nodes.get(node_id)
@@ -79,3 +86,12 @@ class NodeRegistry:
 
     def all_nodes(self) -> list[NodeState]:
         return list(self._nodes.values())
+
+    def purge_offline(self) -> int:
+        """Remove nodes that have been offline longer than OFFLINE_PURGE_AFTER."""
+        now = time.time()
+        to_remove = [nid for nid, n in self._nodes.items()
+                     if (now - n.last_heartbeat) > OFFLINE_PURGE_AFTER]
+        for nid in to_remove:
+            del self._nodes[nid]
+        return len(to_remove)

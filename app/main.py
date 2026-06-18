@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI):
     )
     yield
     task.cancel()
+    await pool.engine.close()
     await db.close_db()
 
 
@@ -254,27 +255,30 @@ async def list_sessions():
 @app.get("/api/sessions/running")
 async def list_running_sessions():
     """活跃的 session（所有节点上实际正在运行的浏览器）"""
-    results = []
-    async with httpx.AsyncClient(timeout=5) as client:
-        for node in registry.all_nodes():
-            if not node.online:
-                continue
-            try:
+    async def fetch_node(node):
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
                 r = await client.get(f"{node.url}/api/profiles")
                 if r.status_code == 200:
-                    for p in r.json():
-                        if p.get("status") == "running":
-                            results.append({
-                                "profile_id": p["id"],
-                                "name": p.get("name", ""),
-                                "node_id": node.node_id,
-                                "node_url": node.url,
-                                "status": "running",
-                                "vnc_ws_port": p.get("vnc_ws_port"),
-                                "cdp_url": p.get("cdp_url"),
-                            })
-            except Exception:
-                continue
+                    return [(p, node) for p in r.json() if p.get("status") == "running"]
+        except Exception:
+            pass
+        return []
+
+    online_nodes = [n for n in registry.all_nodes() if n.online]
+    node_results = await asyncio.gather(*(fetch_node(n) for n in online_nodes))
+    results = []
+    for items in node_results:
+        for p, node in items:
+            results.append({
+                "profile_id": p["id"],
+                "name": p.get("name", ""),
+                "node_id": node.node_id,
+                "node_url": node.url,
+                "status": "running",
+                "vnc_ws_port": p.get("vnc_ws_port"),
+                "cdp_url": p.get("cdp_url"),
+            })
     return results
 
 
@@ -396,7 +400,7 @@ async def _proxy_vnc(websocket: WebSocket, node_url: str, profile_id: str):
     import websockets
     target_ws = f"ws://{node_url.replace('http://', '')}/api/profiles/{profile_id}/vnc"
     try:
-        async with websockets.connect(target_ws, subprotocols=["binary"], max_size=None, ping_interval=None) as vnc_ws:
+        async with websockets.connect(target_ws, subprotocols=["binary"], max_size=None, ping_interval=30, close_timeout=5) as vnc_ws:
             async def client_to_vnc():
                 try:
                     while True:
@@ -423,6 +427,7 @@ async def _proxy_vnc(websocket: WebSocket, node_url: str, profile_id: str):
             done, pending = await asyncio.wait([c2v, v2c], return_when=asyncio.FIRST_COMPLETED)
             for t in pending:
                 t.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
     except Exception:
         pass
     finally:

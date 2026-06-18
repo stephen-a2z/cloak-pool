@@ -11,6 +11,17 @@ class CloakBrowserEngine:
 
     def __init__(self, timeout: float = 15):
         self._timeout = timeout
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=self._timeout)
+        return self._client
+
+    async def close(self) -> None:
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def create_profile(self, node_url: str, config: ProfileConfig) -> str:
         payload = {"name": config.name, "platform": config.platform,
@@ -28,48 +39,48 @@ class CloakBrowserEngine:
         if config.launch_args:
             payload["launch_args"] = config.launch_args
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            r = await client.post(f"{node_url}/api/profiles", json=payload)
-            if r.status_code not in (200, 201):
-                raise HTTPException(502, f"Failed to create profile on node: {r.text}")
-            return r.json().get("id")
+        client = await self._get_client()
+        r = await client.post(f"{node_url}/api/profiles", json=payload)
+        if r.status_code not in (200, 201):
+            raise HTTPException(502, f"Failed to create profile on node: {r.text}")
+        return r.json().get("id")
 
     async def profile_exists(self, node_url: str, profile_id: str) -> bool:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            r = await client.get(f"{node_url}/api/profiles/{profile_id}")
-            return r.status_code != 404
+        client = await self._get_client()
+        r = await client.get(f"{node_url}/api/profiles/{profile_id}")
+        return r.status_code != 404
 
     async def update_profile(self, node_url: str, profile_id: str, fields: dict) -> None:
         if not fields:
             return
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            r = await client.put(f"{node_url}/api/profiles/{profile_id}", json=fields)
-            if r.status_code not in (200, 201):
-                raise HTTPException(502, f"Failed to update profile on node: {r.text}")
+        client = await self._get_client()
+        r = await client.put(f"{node_url}/api/profiles/{profile_id}", json=fields)
+        if r.status_code not in (200, 201):
+            raise HTTPException(502, f"Failed to update profile on node: {r.text}")
 
     async def launch(self, node_url: str, profile_id: str) -> None:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            r = await client.post(f"{node_url}/api/profiles/{profile_id}/launch")
-            if r.status_code not in (200, 201):
-                raise HTTPException(502, f"Failed to launch browser: {r.text}")
+        client = await self._get_client()
+        r = await client.post(f"{node_url}/api/profiles/{profile_id}/launch")
+        if r.status_code not in (200, 201):
+            raise HTTPException(502, f"Failed to launch browser: {r.text}")
 
     async def wait_ready(self, node_url: str, profile_id: str, timeout: float = 15) -> None:
         attempts = int(timeout / 0.5)
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            for _ in range(attempts):
-                r = await client.get(f"{node_url}/api/profiles/{profile_id}/status")
-                if r.status_code == 200 and r.json().get("status") == "running":
-                    return
-                await asyncio.sleep(0.5)
+        client = await self._get_client()
+        for _ in range(attempts):
+            r = await client.get(f"{node_url}/api/profiles/{profile_id}/status")
+            if r.status_code == 200 and r.json().get("status") == "running":
+                return
+            await asyncio.sleep(0.5)
         raise HTTPException(504, "Browser did not start in time")
 
     async def stop(self, node_url: str, profile_id: str) -> None:
-        async with httpx.AsyncClient(timeout=30) as client:
-            await client.post(f"{node_url}/api/profiles/{profile_id}/stop")
+        client = await self._get_client()
+        await client.post(f"{node_url}/api/profiles/{profile_id}/stop", timeout=30)
 
     async def delete_profile(self, node_url: str, profile_id: str) -> None:
-        async with httpx.AsyncClient(timeout=5) as client:
-            await client.delete(f"{node_url}/api/profiles/{profile_id}")
+        client = await self._get_client()
+        await client.delete(f"{node_url}/api/profiles/{profile_id}", timeout=5)
 
     def get_cdp_url(self, node_url: str, profile_id: str) -> str:
         host = node_url.replace("http://", "").replace("https://", "")

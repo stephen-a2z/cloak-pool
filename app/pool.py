@@ -60,10 +60,12 @@ class PoolManager:
 
         try:
             node_url = node.url
+            profile_created_on_node = False
 
             # 6. Create or ensure profile exists on node
             if is_new:
                 engine_id = await self.engine.create_profile(node_url, profile_cfg)
+                profile_created_on_node = True
                 if engine_id and engine_id != profile_id:
                     profile_id = engine_id
                     await self._update_mapping(req.consumer_id, profile_id)
@@ -71,6 +73,7 @@ class PoolManager:
                 exists = await self.engine.profile_exists(node_url, profile_id)
                 if not exists:
                     engine_id = await self.engine.create_profile(node_url, profile_cfg)
+                    profile_created_on_node = True
                     if engine_id and engine_id != profile_id:
                         profile_id = engine_id
                         await self._update_mapping(req.consumer_id, profile_id)
@@ -96,9 +99,15 @@ class PoolManager:
             # 9. Wait for browser to be ready
             await self.engine.wait_ready(node_url, profile_id, timeout=15)
 
-        except HTTPException:
-            raise
         except Exception as exc:
+            # Rollback: stop browser if launch partially succeeded
+            if profile_created_on_node:
+                try:
+                    await self.engine.stop(node_url, profile_id)
+                except Exception:
+                    pass
+            if isinstance(exc, HTTPException):
+                raise
             raise HTTPException(502, f"Node communication error: {exc}")
 
         # 10. Generate session + view token

@@ -80,15 +80,16 @@ async def _push_http(master_url: str, profile_id: str, local_dir: Path) -> None:
     if not local_dir.exists():
         return
     _cleanup_cache_dirs(local_dir)
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=6) as tar:
-        for item in local_dir.iterdir():
-            tar.add(item, arcname=item.name)
-    buf.seek(0)
-    url = f"{master_url}/internal/profiles/{profile_id}/upload"
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(url, files={"file": ("userdata.tar.gz", buf, "application/gzip")})
-    r.raise_for_status()
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=True) as tmp:
+        with tarfile.open(tmp.name, "w:gz", compresslevel=6) as tar:
+            for item in local_dir.iterdir():
+                tar.add(item, arcname=item.name)
+        tmp.seek(0)
+        url = f"{master_url}/internal/profiles/{profile_id}/upload"
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(url, files={"file": ("userdata.tar.gz", tmp, "application/gzip")})
+        r.raise_for_status()
 
 
 # ── Public API (auto-selects mode based on config) ────────────────────────────

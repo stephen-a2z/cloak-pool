@@ -16,13 +16,14 @@ logger = logging.getLogger("browser-pool.worker")
 
 
 async def _heartbeat_loop():
-    """Send heartbeat to master every 10s."""
+    """Send heartbeat to master every 10s with exponential backoff on failure."""
+    interval = 10
+    max_interval = 60
     while True:
         try:
             cpu = memory = disk = 0.0
             try:
                 import os, shutil
-                # CPU: try /proc/loadavg (Linux/Docker), fallback os.getloadavg
                 cpu_count = os.cpu_count() or 1
                 try:
                     with open('/proc/loadavg') as f:
@@ -31,7 +32,6 @@ async def _heartbeat_loop():
                     load = os.getloadavg()[0]
                 cpu = min(round(load / cpu_count * 100, 1), 100)
 
-                # Memory: try /proc/meminfo (Linux), fallback to zero
                 try:
                     mem = {}
                     with open('/proc/meminfo') as f:
@@ -44,7 +44,6 @@ async def _heartbeat_loop():
                 except FileNotFoundError:
                     pass
 
-                # Disk
                 usage = shutil.disk_usage('/')
                 disk = round(usage.used / usage.total * 100, 1)
             except Exception:
@@ -69,9 +68,12 @@ async def _heartbeat_loop():
                         "disk_percent": disk,
                     },
                 )
+            # Success - reset interval
+            interval = 10
         except Exception as exc:
-            logger.warning("Heartbeat failed: %s", exc)
-        await asyncio.sleep(10)
+            logger.warning("Heartbeat failed: %s (retry in %ds)", exc, interval)
+            interval = min(interval * 2, max_interval)
+        await asyncio.sleep(interval)
 
 
 @asynccontextmanager
