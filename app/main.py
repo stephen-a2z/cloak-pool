@@ -133,7 +133,11 @@ async def create_node_profile(node_id: str, body: dict):
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(f"{node.url}/api/profiles", json=profile_data)
             if r.status_code not in (200, 201):
-                raise HTTPException(r.status_code, r.json().get("detail", "Create failed"))
+                try:
+                    detail = r.json().get("detail", "Create failed")
+                except Exception:
+                    detail = r.text[:200]
+                raise HTTPException(r.status_code, detail)
             return r.json()
     except HTTPException:
         raise
@@ -151,7 +155,11 @@ async def launch_node_profile(node_id: str, profile_id: str):
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(f"{node.url}/api/profiles/{profile_id}/launch")
             if r.status_code not in (200, 201):
-                raise HTTPException(r.status_code, r.json().get("detail", "Launch failed"))
+                try:
+                    detail = r.json().get("detail", "Launch failed")
+                except Exception:
+                    detail = r.text[:200]
+                raise HTTPException(r.status_code, detail)
             return r.json()
     except HTTPException:
         raise
@@ -169,7 +177,11 @@ async def stop_node_profile(node_id: str, profile_id: str):
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(f"{node.url}/api/profiles/{profile_id}/stop")
             if r.status_code not in (200, 201):
-                raise HTTPException(r.status_code, r.json().get("detail", "Stop failed"))
+                try:
+                    detail = r.json().get("detail", "Stop failed")
+                except Exception:
+                    detail = r.text[:200]
+                raise HTTPException(r.status_code, detail)
             return r.json()
     except HTTPException:
         raise

@@ -1,9 +1,12 @@
 """CloakBrowser-Manager engine adapter."""
 from __future__ import annotations
 import asyncio
+import logging
 import httpx
 from fastapi import HTTPException
 from app.engines import BrowserEngine, ProfileConfig
+
+logger = logging.getLogger("browser-pool.engine.cbm")
 
 
 class CloakBrowserEngine:
@@ -39,28 +42,40 @@ class CloakBrowserEngine:
         if config.launch_args:
             payload["launch_args"] = config.launch_args
 
-        client = await self._get_client()
-        r = await client.post(f"{node_url}/api/profiles", json=payload)
+        try:
+            client = await self._get_client()
+            r = await client.post(f"{node_url}/api/profiles", json=payload)
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise HTTPException(502, f"Node unreachable ({node_url}): {exc}")
         if r.status_code not in (200, 201):
             raise HTTPException(502, f"Failed to create profile on node: {r.text}")
         return r.json().get("id")
 
     async def profile_exists(self, node_url: str, profile_id: str) -> bool:
-        client = await self._get_client()
-        r = await client.get(f"{node_url}/api/profiles/{profile_id}")
+        try:
+            client = await self._get_client()
+            r = await client.get(f"{node_url}/api/profiles/{profile_id}")
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise HTTPException(502, f"Node unreachable ({node_url}): {exc}")
         return r.status_code != 404
 
     async def update_profile(self, node_url: str, profile_id: str, fields: dict) -> None:
         if not fields:
             return
-        client = await self._get_client()
-        r = await client.put(f"{node_url}/api/profiles/{profile_id}", json=fields)
+        try:
+            client = await self._get_client()
+            r = await client.put(f"{node_url}/api/profiles/{profile_id}", json=fields)
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise HTTPException(502, f"Node unreachable ({node_url}): {exc}")
         if r.status_code not in (200, 201):
             raise HTTPException(502, f"Failed to update profile on node: {r.text}")
 
     async def launch(self, node_url: str, profile_id: str) -> None:
-        client = await self._get_client()
-        r = await client.post(f"{node_url}/api/profiles/{profile_id}/launch")
+        try:
+            client = await self._get_client()
+            r = await client.post(f"{node_url}/api/profiles/{profile_id}/launch")
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise HTTPException(502, f"Node unreachable ({node_url}): {exc}")
         if r.status_code not in (200, 201):
             raise HTTPException(502, f"Failed to launch browser: {r.text}")
 

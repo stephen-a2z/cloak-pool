@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import logging
 import secrets
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -15,6 +16,8 @@ from app.nodes import NodeRegistry, NodeState
 from app import storage
 from app.engines import BrowserEngine, ProfileConfig
 from app.engines.cloakbrowser import CloakBrowserEngine
+
+logger = logging.getLogger("browser-pool.pool")
 
 
 class PoolManager:
@@ -106,6 +109,8 @@ class PoolManager:
                     await self.engine.stop(node_url, profile_id)
                 except Exception:
                     pass
+            logger.warning("acquire failed: consumer=%s node=%s error=%s",
+                           req.consumer_id[:16], node.node_id, exc)
             if isinstance(exc, HTTPException):
                 raise
             raise HTTPException(502, f"Node communication error: {exc}")
@@ -127,6 +132,12 @@ class PoolManager:
         # 12. Update node state
         self.registry.increment_sessions(node.node_id)
         self.registry.update_affinity(node.node_id, profile_id)
+
+        logger.info("acquire: consumer=%s profile=%s node=%s",
+                    req.consumer_id[:16], profile_id[:8], node.node_id)
+
+        logger.info("acquire: consumer=%s profile=%s node=%s session=%s",
+                    req.consumer_id[:16], profile_id[:8], node.node_id, session_id[:8])
 
         # 13. Build response
         cdp_url = self.engine.get_cdp_url(node.url, profile_id)
@@ -170,13 +181,15 @@ class PoolManager:
                 )
         except HTTPException:
             raise
-        except Exception:
-            pass  # Best effort — still mark released
+        except Exception as exc:
+            logger.warning("release: stop/push failed for session=%s profile=%s: %s",
+                           session_id[:8], profile_id[:8], exc)
 
         await db.execute("UPDATE sessions SET status = 'released' WHERE session_id = ?", (session_id,))
         await db.commit()
         self.registry.decrement_sessions(session["node_id"])
         self.registry.update_affinity(session["node_id"], profile_id)
+        logger.info("release: session=%s profile=%s node=%s", session_id[:8], profile_id[:8], session["node_id"])
 
     async def renew(self, session_id: str, owner: str) -> str:
         db = get_db()
@@ -222,8 +235,8 @@ class PoolManager:
             for node in self.registry.all_nodes():
                 try:
                     await self.engine.delete_profile(node.url, profile_id)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("reset: delete_profile failed on %s: %s", node.node_id, exc)
 
     # ── Private helpers ────────────────────────────────────────────────────────
 
