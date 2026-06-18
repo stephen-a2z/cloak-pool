@@ -26,7 +26,7 @@ class CloakBrowserEngine:
             await self._client.aclose()
             self._client = None
 
-    async def create_profile(self, node_url: str, config: ProfileConfig) -> str:
+    async def create_profile(self, node_url: str, config: ProfileConfig, token: str = "") -> str:
         payload = {"name": config.name, "platform": config.platform,
                    "screen_width": config.screen_width, "screen_height": config.screen_height}
         if config.fingerprint_seed is not None:
@@ -51,7 +51,7 @@ class CloakBrowserEngine:
             raise HTTPException(502, f"Failed to create profile on node: {r.text}")
         return r.json().get("id")
 
-    async def profile_exists(self, node_url: str, profile_id: str) -> bool:
+    async def profile_exists(self, node_url: str, profile_id: str, token: str = "") -> bool:
         try:
             client = await self._get_client()
             r = await client.get(f"{node_url}/api/profiles/{profile_id}")
@@ -59,7 +59,7 @@ class CloakBrowserEngine:
             raise HTTPException(502, f"Node unreachable ({node_url}): {exc}")
         return r.status_code != 404
 
-    async def update_profile(self, node_url: str, profile_id: str, fields: dict) -> None:
+    async def update_profile(self, node_url: str, profile_id: str, fields: dict, token: str = "") -> None:
         if not fields:
             return
         try:
@@ -70,7 +70,7 @@ class CloakBrowserEngine:
         if r.status_code not in (200, 201):
             raise HTTPException(502, f"Failed to update profile on node: {r.text}")
 
-    async def launch(self, node_url: str, profile_id: str) -> None:
+    async def launch(self, node_url: str, profile_id: str, token: str = "") -> None:
         try:
             client = await self._get_client()
             r = await client.post(f"{node_url}/api/profiles/{profile_id}/launch")
@@ -79,7 +79,7 @@ class CloakBrowserEngine:
         if r.status_code not in (200, 201):
             raise HTTPException(502, f"Failed to launch browser: {r.text}")
 
-    async def wait_ready(self, node_url: str, profile_id: str, timeout: float = 15) -> None:
+    async def wait_ready(self, node_url: str, profile_id: str, timeout: float = 15, token: str = "") -> None:
         attempts = int(timeout / 0.5)
         client = await self._get_client()
         for _ in range(attempts):
@@ -89,14 +89,14 @@ class CloakBrowserEngine:
             await asyncio.sleep(0.5)
         raise HTTPException(504, "Browser did not start in time")
 
-    async def stop(self, node_url: str, profile_id: str) -> None:
+    async def stop(self, node_url: str, profile_id: str, token: str = "") -> None:
         client = await self._get_client()
         await client.post(f"{node_url}/api/profiles/{profile_id}/stop", timeout=30)
 
-    async def delete_profile(self, node_url: str, profile_id: str) -> None:
+    async def delete_profile(self, node_url: str, profile_id: str, token: str = "") -> None:
         client = await self._get_client()
         await client.delete(f"{node_url}/api/profiles/{profile_id}", timeout=5)
 
-    def get_cdp_url(self, node_url: str, profile_id: str) -> str:
+    def get_cdp_url(self, node_url: str, profile_id: str, token: str = "") -> str:
         host = node_url.replace("http://", "").replace("https://", "")
         return f"ws://{host}/api/profiles/{profile_id}/cdp"

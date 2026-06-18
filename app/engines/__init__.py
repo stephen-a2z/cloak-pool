@@ -33,34 +33,34 @@ class SessionResult:
 class BrowserEngine(Protocol):
     """Protocol that all browser engine adapters must implement."""
 
-    async def create_profile(self, node_url: str, config: ProfileConfig) -> str:
+    async def create_profile(self, node_url: str, config: ProfileConfig, token: str = "") -> str:
         """Create a profile on the node. Returns the engine-assigned profile ID."""
         ...
 
-    async def profile_exists(self, node_url: str, profile_id: str) -> bool:
+    async def profile_exists(self, node_url: str, profile_id: str, token: str = "") -> bool:
         """Check if a profile exists on the node."""
         ...
 
-    async def update_profile(self, node_url: str, profile_id: str, fields: dict) -> None:
+    async def update_profile(self, node_url: str, profile_id: str, fields: dict, token: str = "") -> None:
         """Update an existing profile's configuration."""
         ...
 
-    async def launch(self, node_url: str, profile_id: str) -> None:
+    async def launch(self, node_url: str, profile_id: str, token: str = "") -> None:
         """Launch the browser for a profile."""
         ...
 
-    async def wait_ready(self, node_url: str, profile_id: str, timeout: float = 15) -> None:
+    async def wait_ready(self, node_url: str, profile_id: str, timeout: float = 15, token: str = "") -> None:
         """Wait until the browser is running and ready for CDP connections."""
         ...
 
-    async def stop(self, node_url: str, profile_id: str) -> None:
+    async def stop(self, node_url: str, profile_id: str, token: str = "") -> None:
         """Stop the browser for a profile."""
         ...
 
-    async def delete_profile(self, node_url: str, profile_id: str) -> None:
+    async def delete_profile(self, node_url: str, profile_id: str, token: str = "") -> None:
         """Delete a profile from the node."""
         ...
 
-    def get_cdp_url(self, node_url: str, profile_id: str) -> str:
+    def get_cdp_url(self, node_url: str, profile_id: str, token: str = "") -> str:
         """Build the CDP WebSocket URL for connecting to this profile."""
         ...

@@ -156,10 +156,7 @@ class PoolManager:
                     req.consumer_id[:16], profile_id[:8], node.node_id, session_id[:8])
 
         # 13. Build response
-        if engine_type == "browserless":
-            cdp_url = engine.get_cdp_url(node.url, profile_id, token=node.token)
-        else:
-            cdp_url = engine.get_cdp_url(node.url, profile_id)
+        cdp_url = engine.get_cdp_url(node.url, profile_id, token=node.token)
         master_host = cfg.MASTER_URL.replace("http://", "")
         view_url = f"http://{master_host}/view/{session_id}?token={view_token}"
 

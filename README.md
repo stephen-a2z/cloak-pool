@@ -240,6 +240,8 @@ httpx.post("http://master:9000/api/pool/release", json={
 - **TTL 自动回收** — 超时未 release 的 session 自动释放，防止僵尸浏览器
 - **Cache 控制** — 启动参数限制 cache 大小 + release 时清理，保持 user-data-dir 精简（30-60MB）
 - **实时查看** — 通过 noVNC 在浏览器中查看运行中的浏览器实例
+- **CDP 低延迟查看** — Page.screencast + Input.dispatch 模式，适合验证码/人工接管场景
+- **实时日志流** — SSE 推送运行日志，Dashboard 内置日志查看器
 - **节点 Profile 管理** — 通过 Dashboard 直接在节点上创建、启动、停止 profile（字段完全对齐 CloakBrowser-Manager）
 - **全局默认值** — 配置 proxy、timezone、locale 等默认值，acquire 未传值时自动填充
 
@@ -256,6 +258,8 @@ httpx.post("http://master:9000/api/pool/release", json={
 | `MAX_GLOBAL_SESSIONS` | 10 | 全局最大并发 |
 | `MAX_NODE_SESSIONS` | 5 | 每节点最大并发 |
 | `PROFILE_STORAGE_DIR` | /data/profiles | Profile 数据存储目录 |
+| `NFS_PROFILES_DIR` | (空) | 设置后启用 NFS 模式，NFS 挂载路径 |
+| `LOCAL_PROFILES_DIR` | /data/cbm-profiles | Worker 本地 profile 解压目录 |
 | `DB_PATH` | /data/browser-pool.db | SQLite 数据库路径 |
 | `TTL_DEFAULT` | 1800 | 默认 TTL (秒) |
 | `TTL_MAX` | 7200 | 最大 TTL (秒) |

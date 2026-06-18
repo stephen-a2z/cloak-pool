@@ -17,6 +17,7 @@
 | consumer_id | string | ✅ | Consumer 唯一标识 |
 | owner | string | ✅ | 持有者标识（用于 release/renew 权限验证） |
 | ttl | int | ❌ | Session 有效期（秒），默认 1800，最大 7200 |
+| engine | string | ❌ | 引擎类型：`cloakbrowser`（默认）/ `browserless` |
 | proxy | string | ❌ | 代理地址 |
 | timezone | string | ❌ | 时区 |
 | locale | string | ❌ | 语言区域 |
@@ -118,7 +119,9 @@ Worker 节点心跳注册。每 10 秒调用一次。
   "current_sessions": 2,
   "cpu_percent": 45.2,
   "memory_percent": 62.1,
-  "disk_percent": 35.0
+  "disk_percent": 35.0,
+  "engine": "cloakbrowser",
+  "token": ""
 }
 ```
 
@@ -205,6 +208,22 @@ Worker 节点心跳注册。每 10 秒调用一次。
 在节点上停止指定 profile 的浏览器。
 
 **响应 200：** `{"ok": true}`
+
+---
+
+### GET /api/nodes/{node_id}/sessions
+
+获取 Browserless 节点上的活跃 sessions（代理 Browserless `/sessions`）。
+
+**响应 200：** Browserless sessions 数组
+
+---
+
+### GET /api/nodes/{node_id}/pressure
+
+获取 Browserless 节点的队列压力（代理 Browserless `/pressure`）。
+
+**响应 200：** Browserless pressure JSON
 
 ---
 
@@ -340,7 +359,35 @@ VNC WebSocket 代理（管理员，无 token）。
 
 ---
 
-## 6. 内部 API（Worker ↔ Master）
+### WS /api/view/{session_id}/cdp?token=xxx
+
+CDP WebSocket 代理（页面级别，用于 Screencast + Input）。自动发现首个 page target。
+
+### WS /api/view/browser/{node_id}/{profile_id}/cdp
+
+CDP WebSocket 代理（管理员，无 token）。
+
+---
+
+## 6. 日志流 API
+
+### GET /api/logs/history
+
+获取最近 500 行日志缓冲。
+
+**响应 200：** `string[]`
+
+---
+
+### GET /api/logs/stream
+
+SSE (Server-Sent Events) 实时日志流。
+
+**响应：** `text/event-stream`，每行格式 `data: <log line>\n\n`
+
+---
+
+## 7. 内部 API（Worker ↔ Master）
 
 ### GET /internal/profiles/{profile_id}/download
 
