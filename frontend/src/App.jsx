@@ -77,8 +77,13 @@ function NodeCard({ node, onViewSession }) {
   const fetchProfiles = async () => {
     setLoading(true)
     try {
-      const r = await fetch(`/api/nodes/${node.node_id}/profiles`)
-      if (r.ok) setProfiles(await r.json())
+      if (node.engine === 'browserless') {
+        const r = await fetch(`/api/nodes/${node.node_id}/sessions`)
+        if (r.ok) setProfiles(await r.json())
+      } else {
+        const r = await fetch(`/api/nodes/${node.node_id}/profiles`)
+        if (r.ok) setProfiles(await r.json())
+      }
     } catch (e) {}
     setLoading(false)
   }
@@ -106,7 +111,10 @@ function NodeCard({ node, onViewSession }) {
       <div className="p-4 flex items-center gap-3 cursor-pointer select-none" onClick={handleToggle}>
         <div className={`w-2.5 h-2.5 rounded-full ${node.online ? 'bg-emerald-400' : 'bg-red-400'} ${node.online ? 'shadow-[0_0_6px_rgba(52,211,153,0.4)]' : ''}`}></div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate">{node.node_id}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium truncate">{node.node_id}</span>
+            {node.engine === 'browserless' && <span className="text-[9px] font-mono bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded">BL</span>}
+          </div>
           <div className="text-xs text-gray-500 truncate">{node.url}</div>
         </div>
         <div className="hidden sm:flex items-center gap-3 shrink-0">
@@ -125,41 +133,70 @@ function NodeCard({ node, onViewSession }) {
       {expanded && (
         <div className="border-t border-gray-800 px-4 pb-4 pt-3">
           {loading && (
-            <div className="flex items-center gap-2 text-xs text-gray-500"><div className="w-3 h-3 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>Loading profiles...</div>
+            <div className="flex items-center gap-2 text-xs text-gray-500"><div className="w-3 h-3 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>Loading...</div>
           )}
-          {!loading && profiles.length === 0 && (
-            <div className="text-xs text-gray-600 py-2">No profiles on this node. Click "+ New Profile" to create one.</div>
-          )}
-          {!loading && profiles.length > 0 && (
-            <div className="space-y-1.5">
-              {profiles.map(p => (
-                <div key={p.id} className="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-white/[0.02] transition-colors">
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.status === 'running' ? 'bg-emerald-400' : 'bg-gray-600'}`}></span>
-                  <span className="text-sm truncate flex-1">{p.name}</span>
-                  <span className="font-mono text-[10px] text-gray-600 shrink-0">{p.id?.slice(0, 8)}</span>
-                  <div className="shrink-0">
-                    {p.status === 'running' ? (
-                      <div className="flex gap-1">
-                        <button onClick={(e) => { e.stopPropagation(); onViewSession({ _browser: true, node_id: node.node_id, profile_id: p.id, name: p.name }) }} className="px-2 py-0.5 rounded text-[11px] font-medium text-blue-400 hover:bg-blue-400/10 transition-colors">View</button>
-                        <button onClick={(e) => { e.stopPropagation(); handleAction(p.id, 'stop') }} disabled={acting === p.id} className="px-2 py-0.5 rounded text-[11px] font-medium text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40 active:scale-95">{acting === p.id ? '...' : 'Stop'}</button>
-                      </div>
-                    ) : (
-                      <button onClick={(e) => { e.stopPropagation(); handleAction(p.id, 'launch') }} disabled={acting === p.id} className="px-2 py-0.5 rounded text-[11px] font-medium text-emerald-400 hover:bg-emerald-400/10 transition-colors disabled:opacity-40 active:scale-95">{acting === p.id ? '...' : 'Launch'}</button>
-                    )}
-                  </div>
+
+          {/* Browserless node */}
+          {!loading && node.engine === 'browserless' && (
+            <>
+              {profiles.length === 0 && (
+                <div className="text-xs text-gray-600 py-2">No active sessions</div>
+              )}
+              {profiles.length > 0 && (
+                <div className="space-y-1.5">
+                  {profiles.map((s, i) => (
+                    <div key={s.id || i} className="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-white/[0.02] transition-colors">
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-emerald-400"></span>
+                      <span className="text-sm truncate flex-1">{s.initialUrl || s.id || 'Session'}</span>
+                      <span className="font-mono text-[10px] text-gray-600 shrink-0">{s.browser || 'chromium'}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+              <div className="mt-3 pt-2 border-t border-gray-800/50 flex items-center gap-3">
+                {actionError && <p className="text-xs text-red-400">{actionError}</p>}
+                <a href={node.url} target="_blank" rel="noopener" className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-blue-400 hover:bg-blue-400/10 transition-colors">Open Debugger</a>
+                <span className="text-[10px] text-gray-600">{profiles.length} active session{profiles.length !== 1 ? 's' : ''}</span>
+              </div>
+            </>
           )}
-          {!loading && (
-            <div className="mt-3 pt-2 border-t border-gray-800/50">
-              {actionError && <p className="text-xs text-red-400 mb-2">{actionError}</p>}
-              <button onClick={() => setCreating(true)} className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 hover:bg-white/5 hover:text-gray-200 transition-colors">+ New Profile</button>
-            </div>
+
+          {/* CloakBrowser node */}
+          {!loading && node.engine !== 'browserless' && (
+            <>
+              {profiles.length === 0 && (
+                <div className="text-xs text-gray-600 py-2">No profiles on this node. Click "+ New Profile" to create one.</div>
+              )}
+              {profiles.length > 0 && (
+                <div className="space-y-1.5">
+                  {profiles.map(p => (
+                    <div key={p.id} className="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-white/[0.02] transition-colors">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.status === 'running' ? 'bg-emerald-400' : 'bg-gray-600'}`}></span>
+                      <span className="text-sm truncate flex-1">{p.name}</span>
+                      <span className="font-mono text-[10px] text-gray-600 shrink-0">{p.id?.slice(0, 8)}</span>
+                      <div className="shrink-0">
+                        {p.status === 'running' ? (
+                          <div className="flex gap-1">
+                            <button onClick={(e) => { e.stopPropagation(); onViewSession({ _browser: true, node_id: node.node_id, profile_id: p.id, name: p.name }) }} className="px-2 py-0.5 rounded text-[11px] font-medium text-blue-400 hover:bg-blue-400/10 transition-colors">View</button>
+                            <button onClick={(e) => { e.stopPropagation(); handleAction(p.id, 'stop') }} disabled={acting === p.id} className="px-2 py-0.5 rounded text-[11px] font-medium text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40 active:scale-95">{acting === p.id ? '...' : 'Stop'}</button>
+                          </div>
+                        ) : (
+                          <button onClick={(e) => { e.stopPropagation(); handleAction(p.id, 'launch') }} disabled={acting === p.id} className="px-2 py-0.5 rounded text-[11px] font-medium text-emerald-400 hover:bg-emerald-400/10 transition-colors disabled:opacity-40 active:scale-95">{acting === p.id ? '...' : 'Launch'}</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-3 pt-2 border-t border-gray-800/50">
+                {actionError && <p className="text-xs text-red-400 mb-2">{actionError}</p>}
+                <button onClick={() => setCreating(true)} className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 hover:bg-white/5 hover:text-gray-200 transition-colors">+ New Profile</button>
+              </div>
+            </>
           )}
         </div>
       )}
-      {creating && (
+      {creating && node.engine !== 'browserless' && (
         <Suspense fallback={null}>
           <CreateProfileModal nodeId={node.node_id} onClose={() => setCreating(false)} onCreated={() => { setCreating(false); fetchProfiles() }} />
         </Suspense>

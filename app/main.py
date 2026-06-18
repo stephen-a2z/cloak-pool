@@ -70,6 +70,7 @@ async def list_nodes():
             current_sessions=n.current_sessions, online=n.online,
             last_heartbeat=datetime.fromtimestamp(n.last_heartbeat, tz=timezone.utc).isoformat(),
             cpu_percent=n.cpu_percent, memory_percent=n.memory_percent, disk_percent=n.disk_percent,
+            engine=n.engine,
         )
         for n in registry.all_nodes()
     ]
@@ -189,6 +190,40 @@ async def stop_node_profile(node_id: str, profile_id: str):
         raise
     except Exception as exc:
         raise HTTPException(502, f"Node unreachable: {exc}")
+
+
+@app.get("/api/nodes/{node_id}/sessions")
+async def get_node_sessions(node_id: str):
+    """Get active sessions on a Browserless node."""
+    node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
+    if not node or not node.online:
+        raise HTTPException(404, "Node not found or offline")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            params = {"token": node.token} if node.token else {}
+            r = await client.get(f"{node.url}/sessions", params=params)
+            if r.status_code != 200:
+                return []
+            return r.json()
+    except Exception:
+        return []
+
+
+@app.get("/api/nodes/{node_id}/pressure")
+async def get_node_pressure(node_id: str):
+    """Get queue pressure on a Browserless node."""
+    node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
+    if not node or not node.online:
+        raise HTTPException(404, "Node not found or offline")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            params = {"token": node.token} if node.token else {}
+            r = await client.get(f"{node.url}/pressure", params=params)
+            if r.status_code != 200:
+                return {}
+            return r.json()
+    except Exception:
+        return {}
 
 
 # ── Global Defaults ────────────────────────────────────────────────────────────
@@ -336,6 +371,7 @@ async def get_stats():
             node_id=n.node_id, url=n.url, max_sessions=n.max_sessions,
             current_sessions=n.current_sessions, online=n.online,
             last_heartbeat=datetime.fromtimestamp(n.last_heartbeat, tz=timezone.utc).isoformat(),
+            engine=n.engine,
         )
         for n in registry.all_nodes()
     ]

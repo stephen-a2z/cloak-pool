@@ -67,6 +67,7 @@ class NodeInfo(BaseModel):
     cpu_percent: float = 0
     memory_percent: float = 0
     disk_percent: float = 0
+    engine: str = "cloakbrowser"
 
 
 class SessionInfo(BaseModel):
