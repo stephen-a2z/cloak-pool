@@ -449,6 +449,66 @@ async def _proxy_vnc(websocket: WebSocket, node_url: str, profile_id: str):
             pass
 
 
+# ── Log Streaming (SSE) ───────────────────────────────────────────────────────
+import logging
+import collections
+from fastapi.responses import StreamingResponse
+
+_log_buffer: collections.deque = collections.deque(maxlen=500)
+_log_subscribers: list[asyncio.Queue] = []
+
+
+class _SSELogHandler(logging.Handler):
+    def emit(self, record):
+        entry = self.format(record)
+        _log_buffer.append(entry)
+        for q in _log_subscribers[:]:
+            try:
+                q.put_nowait(entry)
+            except asyncio.QueueFull:
+                pass
+
+
+def _setup_log_handler():
+    handler = _SSELogHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"))
+    root = logging.getLogger("browser-pool")
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    # Also capture uvicorn access logs
+    uv = logging.getLogger("uvicorn.access")
+    uv.addHandler(handler)
+
+
+_setup_log_handler()
+
+
+@app.get("/api/logs/history")
+async def get_log_history():
+    """Get recent log buffer (last 500 lines)."""
+    return list(_log_buffer)
+
+
+@app.get("/api/logs/stream")
+async def stream_logs():
+    """SSE stream of real-time logs."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _log_subscribers.append(queue)
+
+    async def event_generator():
+        try:
+            while True:
+                entry = await queue.get()
+                yield f"data: {entry}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            _log_subscribers.remove(queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream",
+                            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 # ── Static Frontend (React SPA) ──────────────────────────────────────────────
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles

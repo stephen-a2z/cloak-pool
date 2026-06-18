@@ -3,6 +3,7 @@ import VncViewer from './VncViewer'
 import DefaultsEditor from './DefaultsEditor'
 
 const CreateProfileModal = lazy(() => import('./CreateProfileModal'))
+const LogViewer = lazy(() => import('./LogViewer'))
 
 function StatCard({ label, value, max, accent = 'blue' }) {
   const colors = { blue: 'from-blue-500/10 to-transparent border-blue-500/20', green: 'from-emerald-500/10 to-transparent border-emerald-500/20', amber: 'from-amber-500/10 to-transparent border-amber-500/20' }
@@ -321,6 +322,11 @@ export default function App() {
 
         {/* Global Defaults */}
         <DefaultsEditor />
+
+        {/* Logs */}
+        <Suspense fallback={null}>
+          <LogViewer />
+        </Suspense>
 
         {/* Nodes */}
         <section>
