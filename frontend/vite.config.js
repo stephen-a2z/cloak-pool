@@ -9,6 +9,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         vnc: resolve(__dirname, 'vnc.html'),
+        view: resolve(__dirname, 'view.html'),
       },
       output: {
         manualChunks: {

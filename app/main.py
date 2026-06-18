@@ -358,8 +358,17 @@ def _vnc_page_response(ws_path: str):
     )
 
 
+def _view_page_response(ws_path: str, mode: str = "vnc"):
+    """Redirect to view.html with ws path and mode."""
+    from urllib.parse import quote
+    return HTMLResponse(
+        status_code=200,
+        content=f'<html><head><meta http-equiv="refresh" content="0;url=/view.html?ws={quote(ws_path)}&mode={mode}"></head></html>',
+    )
+
+
 @app.get("/view/{session_id}")
-async def view_session(session_id: str, token: str = Query(...)):
+async def view_session(session_id: str, token: str = Query(...), mode: str = Query("vnc")):
     """View page for sessions (token-authenticated, shareable URL)."""
     dbc = db.get_db()
     rows = await dbc.execute_fetchall(
@@ -370,16 +379,16 @@ async def view_session(session_id: str, token: str = Query(...)):
         raise HTTPException(404, "Session not found or not active")
     if rows[0][0] != token:
         raise HTTPException(403, "Invalid view token")
-    return _vnc_page_response(f"/api/view/{session_id}/vnc?token={token}")
+    return _view_page_response(f"/api/view/{session_id}/vnc?token={token}", mode)
 
 
 @app.get("/view/browser/{node_id}/{profile_id}")
-async def view_browser(node_id: str, profile_id: str):
+async def view_browser(node_id: str, profile_id: str, mode: str = Query("vnc")):
     """View page for any running browser (admin, no token needed)."""
     node = next((n for n in registry.all_nodes() if n.node_id == node_id), None)
     if not node:
         raise HTTPException(404, "Node not found")
-    return _vnc_page_response(f"/api/view/browser/{node_id}/{profile_id}/vnc")
+    return _view_page_response(f"/api/view/browser/{node_id}/{profile_id}/vnc", mode)
 
 @app.websocket("/api/view/{session_id}/vnc")
 async def vnc_proxy(websocket: WebSocket, session_id: str, token: str = Query(...)):

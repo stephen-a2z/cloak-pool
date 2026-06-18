@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browser View</title>
+  <style>
+    * { margin: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #000; font-family: system-ui, sans-serif; }
+    #toolbar { position: fixed; top: 0; left: 0; right: 0; height: 36px; background: #1f2937; border-bottom: 1px solid #374151; display: flex; align-items: center; padding: 0 12px; gap: 10px; z-index: 10; }
+    #toolbar .status { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
+    #toolbar .status.on { background: #34d399; }
+    #toolbar .label { color: #9ca3af; font-size: 12px; }
+    #toolbar .badge { font-size: 10px; font-family: monospace; background: #111827; color: #6b7280; padding: 2px 6px; border-radius: 4px; }
+    #toolbar .btn { font-size: 11px; color: #60a5fa; background: none; border: none; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
+    #toolbar .btn:hover { background: rgba(96,165,250,0.1); }
+    #toolbar .spacer { flex: 1; }
+    #toolbar .fps { font-size: 10px; font-family: monospace; color: #6b7280; }
+    #viewer { position: fixed; top: 36px; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; }
+    #viewer canvas { max-width: 100%; max-height: 100%; cursor: default; }
+    #viewer #screen { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <div id="status-dot" class="status"></div>
+    <span id="info" class="label">Connecting...</span>
+    <span id="mode-badge" class="badge"></span>
+    <span id="fps-display" class="fps"></span>
+    <span class="spacer"></span>
+    <button id="switch-btn" class="btn"></button>
+  </div>
+  <div id="viewer"></div>
+  <script type="module" src="/src/view-standalone.js"></script>
+</body>
+</html>
